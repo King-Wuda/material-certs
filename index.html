@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heat Number Search — Material Certificates</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --panel:#ffffff; --ink:#16202b; --muted:#66788a;
+    --line:#dfe5ec; --accent:#0d6b9e; --accent-ink:#ffffff; --accent-soft:#e6f2f9;
+    --ok:#12795a; --ok-soft:#e3f5ee; --warn:#8a5a00; --warn-soft:#fdf2dd;
+    --bad:#a32222; --bad-soft:#fdeaea; --mark:#ffe08a; --mark-ink:#16202b; --shadow:0 1px 2px rgba(16,32,48,.06),0 8px 24px rgba(16,32,48,.06);
+    --radius:10px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#10161d; --panel:#172029; --ink:#e7edf3; --muted:#93a4b5;
+      --line:#27333f; --accent:#4aa8dd; --accent-ink:#06121b; --accent-soft:#122a3a;
+      --ok:#5fd3ab; --ok-soft:#102b24; --warn:#e2b45a; --warn-soft:#2c2313;
+      --bad:#f08a8a; --bad-soft:#2e1818; --mark:#8a6712; --mark-ink:#fff6df; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:14px/1.5 ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-text-size-adjust:100%;
+  }
+  h1,h2,h3{margin:0;line-height:1.25}
+  button{font:inherit;color:inherit}
+  input,textarea,select{font:inherit;color:inherit}
+
+  .topbar{
+    display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;
+    padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:20;
+  }
+  .brand{display:flex;gap:12px;align-items:center;min-width:0}
+  .logo{
+    width:36px;height:36px;border-radius:9px;background:var(--accent);color:var(--accent-ink);
+    display:grid;place-items:center;font-size:18px;flex:none;
+  }
+  .brand h1{font-size:16px;letter-spacing:.2px}
+  .brand p{margin:1px 0 0;font-size:12px;color:var(--muted)}
+  .privacy{font-size:12px;color:var(--ok);background:var(--ok-soft);border:1px solid var(--line);
+    padding:5px 10px;border-radius:999px;white-space:nowrap}
+
+  main{max-width:1500px;margin:0 auto;padding:18px;display:grid;gap:18px;grid-template-columns:minmax(0,1fr) minmax(0,460px);align-items:start}
+  @media (max-width:1050px){ main{grid-template-columns:minmax(0,1fr)} }
+  .col{display:grid;gap:18px;align-items:start;min-width:0}
+  .col-right{position:sticky;top:86px}
+  @media (max-width:1050px){ .col-right{position:static} }
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;min-width:0}
+  .panel > h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin-bottom:12px}
+  .panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .panel-head h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted)}
+
+  .drop{
+    border:2px dashed var(--line);border-radius:var(--radius);padding:26px 18px;text-align:center;
+    cursor:pointer;transition:border-color .15s,background .15s;background:transparent;width:100%;display:block;
+  }
+  .drop:hover,.drop:focus-visible{border-color:var(--accent);background:var(--accent-soft);outline:none}
+  .drop.over{border-color:var(--accent);background:var(--accent-soft)}
+  .drop strong{display:block;font-size:15px;margin-bottom:4px}
+  .drop span{color:var(--muted);font-size:12.5px}
+
+  .progress{margin-top:12px}
+  .track{height:6px;border-radius:999px;background:var(--line);overflow:hidden}
+  .track > i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s}
+  .progress p{margin:6px 0 0;font-size:12.5px;color:var(--muted)}
+
+  .files{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}
+  .files li{display:flex;gap:10px;align-items:center;padding:9px 11px;border:1px solid var(--line);border-radius:8px}
+  .files .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+  .files .meta{font-size:12px;color:var(--muted);white-space:nowrap}
+  .x{background:none;border:0;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;padding:4px;border-radius:6px}
+  .x:hover{color:var(--bad);background:var(--bad-soft)}
+
+  .notice{margin-top:12px;padding:10px 12px;border-radius:8px;font-size:13px;border:1px solid var(--line)}
+  .notice.warn{background:var(--warn-soft);color:var(--warn)}
+  .notice.bad{background:var(--bad-soft);color:var(--bad)}
+  .notice .row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+
+  .tabs{display:flex;gap:6px;margin-bottom:12px}
+  .tabs button{
+    background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 14px;cursor:pointer;font-size:13px;
+  }
+  .tabs button[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+
+  .field{display:grid;gap:5px;margin-bottom:10px;min-width:0}
+  .field label{font-size:12px;font-weight:600;color:var(--muted)}
+  input[type=text],input[type=number],textarea{
+    width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);
+  }
+  input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
+  #q{font-size:18px;font-weight:600;letter-spacing:.04em;padding:12px 14px}
+  textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  .hint{font-size:12px;color:var(--muted)}
+  .hint code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;
+    background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 4px;color:var(--ink)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  @media (max-width:520px){ .two{grid-template-columns:1fr} }
+
+  .btn{
+    display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border-radius:8px;cursor:pointer;
+    border:1px solid var(--line);background:var(--panel);font-size:13px;font-weight:600;
+  }
+  .btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .btn.primary:hover:not(:disabled){filter:brightness(1.08);color:var(--accent-ink)}
+  .btn.sm{padding:5px 10px;font-size:12px;font-weight:600}
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+  .summary{font-size:13px;color:var(--muted);margin-bottom:10px}
+  .summary b{color:var(--ink)}
+
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px;border:1px solid var(--line);
+    border-radius:8px;background:var(--bg);margin-bottom:12px}
+  .toolbar .spacer{flex:1}
+  .toolbar label{font-size:12.5px;color:var(--muted);display:inline-flex;align-items:center;gap:6px}
+  .toolbar input[type=number]{width:62px;padding:5px 7px}
+
+  .hit{border:1px solid var(--line);border-radius:8px;padding:11px 12px;margin-bottom:9px;display:grid;gap:8px}
+  .hit.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+  .hit .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .hit .where{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .hit .where small{display:block;font-weight:400;color:var(--muted);font-size:12px}
+  .pill{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+  .snippet{font-size:12.5px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:6px;
+    padding:8px 10px;max-height:78px;overflow:auto;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  mark{background:var(--mark);color:var(--mark-ink);border-radius:3px;padding:0 2px;font-weight:700}
+  .empty{text-align:center;color:var(--muted);padding:26px 10px;font-size:13.5px}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  td.heat{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;white-space:nowrap}
+  .tag{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .tag.ok{background:var(--ok-soft);color:var(--ok)}
+  .tag.no{background:var(--bad-soft);color:var(--bad)}
+  .linkish{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;text-decoration:underline;font-size:12.5px;text-align:left}
+  .scrollx{overflow-x:auto}
+
+  #canvasWrap{border:1px solid var(--line);border-radius:8px;background:var(--bg);overflow:auto;max-height:70vh;display:grid;place-items:center;padding:10px}
+  #pageCanvas{max-width:100%;height:auto;background:#fff;box-shadow:var(--shadow);border-radius:2px}
+  .previewMeta{font-size:12.5px;color:var(--muted);margin-bottom:10px;min-height:18px}
+  .previewMeta b{color:var(--ink)}
+  [hidden]{display:none !important}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4"/><path d="M14 3l5 5"/><path d="M14 3v5h5"/>
+        <circle cx="16.5" cy="15.5" r="3.5"/><path d="m21 20-2-2"/>
+      </svg>
+    </span>
+    <div>
+      <h1>Heat Number Search</h1>
+      <p>Pull a material certificate out of a combined PDF</p>
+    </div>
+  </div>
+  <div class="privacy">Runs in your browser — files are never uploaded</div>
+</header>
+
+<main>
+  <div class="col col-left">
+
+    <section class="panel">
+      <h2>1 · Load certificates</h2>
+      <button type="button" class="drop" id="drop">
+        <strong>Drop PDFs here, or click to choose</strong>
+        <span>One combined cert package or many separate files</span>
+      </button>
+      <input type="file" id="fileInput" accept="application/pdf,.pdf" multiple hidden>
+
+      <div class="progress" id="progress" hidden>
+        <div class="track"><i id="bar"></i></div>
+        <p id="progressText"></p>
+      </div>
+
+      <ul class="files" id="fileList"></ul>
+
+      <div class="notice warn" id="ocrNotice" hidden>
+        <div class="row">
+          <span id="ocrText"></span>
+          <button class="btn sm" id="ocrBtn" type="button">Read scanned pages (OCR)</button>
+        </div>
+      </div>
+      <div class="notice bad" id="errNotice" hidden></div>
+    </section>
+
+    <section class="panel">
+      <h2>2 · Search</h2>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" id="tabSingleBtn" aria-selected="true" data-tab="single">One heat number</button>
+        <button type="button" role="tab" id="tabBatchBtn" aria-selected="false" data-tab="batch">A list of them</button>
+      </div>
+
+      <div id="tabSingle">
+        <div class="field">
+          <label for="q">Heat number</label>
+          <input type="text" id="q" placeholder="e.g. 5A1234 or A-12345" autocomplete="off" spellcheck="false">
+          <span class="hint">Spaces, dashes and slashes are ignored, so <code>A-12 345</code> finds <code>A12345</code>.</span>
+        </div>
+        <div class="field">
+          <label for="also">Must also contain (optional)</label>
+          <input type="text" id="also" placeholder='e.g. Elbow, or 6"' autocomplete="off" spellcheck="false">
+          <span class="hint">Narrows a heat number that appears on several certs — size, fitting type, spec.</span>
+        </div>
+      </div>
+
+      <div id="tabBatch" hidden>
+        <div class="field">
+          <label for="batchInput">Heat numbers, one per line</label>
+          <textarea id="batchInput" rows="7" placeholder="5A1234&#10;A-12345&#10;N9J7-2"></textarea>
+        </div>
+        <div class="btnrow">
+          <button class="btn primary" id="runBatch" type="button">Search the list</button>
+          <button class="btn" id="clearBatch" type="button">Clear</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Results</h2>
+        <span class="hint" id="resultCount"></span>
+      </div>
+      <div id="results"><p class="empty">Load a PDF, then type a heat number.</p></div>
+    </section>
+
+  </div>
+
+  <div class="col col-right">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Preview</h2>
+        <div class="btnrow" id="previewNav" hidden>
+          <button class="btn sm" id="prevPage" type="button" title="Previous page">◀</button>
+          <button class="btn sm" id="nextPage" type="button" title="Next page">▶</button>
+        </div>
+      </div>
+      <p class="previewMeta" id="previewMeta">Pick a result to see the page.</p>
+      <div id="canvasWrap"><canvas id="pageCanvas" width="10" height="10"></canvas></div>
+      <div class="btnrow" id="previewActions" hidden style="margin-top:12px">
+        <button class="btn primary" id="saveThis" type="button">Save this cert as PDF</button>
+        <label class="hint" style="display:inline-flex;align-items:center;gap:6px">
+          + <input type="number" id="trail" value="0" min="0" max="20" step="1" style="width:58px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;background:var(--bg)"> following page(s)
+        </label>
+      </div>
+    </section>
+  </div>
+</main>
+<div class="sr" role="status" aria-live="polite" id="live"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var PDFJS_WORKER = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  var TESS_JS      = "https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/tesseract.min.js";
+  var TESS_WORKER  = "https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.0/worker.min.js";
+  var TESS_CORE    = "https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/";
+  var TESS_LANG    = "https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var els = {
+    drop: $("drop"), fileInput: $("fileInput"), fileList: $("fileList"),
+    progress: $("progress"), bar: $("bar"), progressText: $("progressText"),
+    ocrNotice: $("ocrNotice"), ocrText: $("ocrText"), ocrBtn: $("ocrBtn"), errNotice: $("errNotice"),
+    q: $("q"), also: $("also"), batchInput: $("batchInput"), runBatch: $("runBatch"), clearBatch: $("clearBatch"),
+    tabSingle: $("tabSingle"), tabBatch: $("tabBatch"),
+    tabSingleBtn: $("tabSingleBtn"), tabBatchBtn: $("tabBatchBtn"),
+    results: $("results"), resultCount: $("resultCount"),
+    canvas: $("pageCanvas"), canvasWrap: $("canvasWrap"),
+    previewMeta: $("previewMeta"), previewNav: $("previewNav"), previewActions: $("previewActions"),
+    prevPage: $("prevPage"), nextPage: $("nextPage"), saveThis: $("saveThis"), trail: $("trail"),
+    live: $("live")
+  };
+
+  var docs = [];            // loaded PDFs
+  var nextDocId = 1;
+  var mode = "single";      // "single" | "batch"
+  var lastHits = [];        // flat list of current single-search hits
+  var selected = new Set(); // keys of checked hits
+  var current = null;       // {doc, page} shown in the preview
+  var trail = 0;            // extra pages to keep after a matched page
+  var busy = false;
+  var renderToken = 0;
+
+  /* ---------- small helpers ---------- */
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+  function normKey(s) { return String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, ""); }
+  function say(msg) { els.live.textContent = msg; }
+  function showError(msg) {
+    els.errNotice.hidden = !msg;
+    els.errNotice.textContent = msg || "";
+  }
+  function why(e) {
+    if (!e) return "unknown error";
+    return e.message || e.name || String(e);
+  }
+  function setProgress(done, total, label) {
+    els.progress.hidden = false;
+    els.bar.style.width = total ? Math.round((done / total) * 100) + "%" : "0%";
+    els.progressText.textContent = label;
+  }
+  function hideProgress() { els.progress.hidden = true; els.bar.style.width = "0%"; }
+  function yieldUI() { return new Promise(function (r) { setTimeout(r, 0); }); }
+  function safeName(s) {
+    return String(s).replace(/[\\/:*?"<>|]+/g, "_").replace(/\s+/g, " ").trim().slice(0, 80) || "certificate";
+  }
+  function baseName(s) { return String(s).replace(/\.pdf$/i, ""); }
+
+  function downloadBytes(bytes, filename) {
+    var blob = new Blob([bytes], { type: "application/pdf" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = filename; a.rel = "noopener";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+  }
+
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = src; s.async = true;
+      s.onload = function () { resolve(); };
+      s.onerror = function () { reject(new Error("Could not load " + src)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  /* ---------- text extraction ---------- */
+
+  // Keep the readable text, plus an alphanumeric-only copy and a map back to it,
+  // so "A-12 345" on the page still matches a search for "A12345".
+  function buildIndex(text) {
+    var chars = [], map = [], i, c;
+    for (i = 0; i < text.length; i++) {
+      c = text.charCodeAt(i);
+      if ((c >= 48 && c <= 57) || (c >= 65 && c <= 90)) { chars.push(text[i]); map.push(i); }
+      else if (c >= 97 && c <= 122) { chars.push(text[i].toUpperCase()); map.push(i); }
+    }
+    return { norm: chars.join(""), map: map };
+  }
+
+  function pageTextFromContent(content) {
+    var out = "", lastY = null, i, it, y;
+    for (i = 0; i < content.items.length; i++) {
+      it = content.items[i];
+      if (typeof it.str !== "string") continue;
+      y = it.transform ? it.transform[5] : null;
+      if (lastY !== null && y !== null && Math.abs(y - lastY) > 2.5) out += "\n";
+      else if (out && !/[\s\n]$/.test(out)) out += " ";
+      out += it.str;
+      if (it.hasEOL) { out += "\n"; lastY = null; } else { lastY = y; }
+    }
+    return out;
+  }
+
+  /* ---------- loading PDFs ---------- */
+
+  async function addFiles(fileList) {
+    if (busy) return;
+    var files = Array.prototype.slice.call(fileList).filter(function (f) {
+      return /\.pdf$/i.test(f.name) || f.type === "application/pdf";
+    });
+    if (!files.length) { showError("Those files are not PDFs."); return; }
+    if (!window.pdfjsLib) { showError("The PDF engine did not load. Check the internet connection and reload."); return; }
+
+    busy = true; showError("");
+    try {
+      for (var f = 0; f < files.length; f++) {
+        var file = files[f];
+        setProgress(0, 1, "Reading " + file.name + "…");
+        await yieldUI();
+
+        var bytes = new Uint8Array(await file.arrayBuffer());
+        var pdf;
+        try {
+          pdf = await window.pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
+        } catch (e) {
+          showError("Could not open " + file.name + " — it may be password protected or damaged.");
+          continue;
+        }
+
+        var doc = { id: nextDocId++, name: file.name, bytes: bytes, pdf: pdf, pages: [], blank: 0 };
+        for (var p = 1; p <= pdf.numPages; p++) {
+          var page = await pdf.getPage(p);
+          var content = await page.getTextContent();
+          var text = pageTextFromContent(content);
+          var idx = buildIndex(text);
+          doc.pages.push({ n: p, text: text, norm: idx.norm, map: idx.map, ocr: false });
+          if (idx.norm.length < 16) doc.blank++;
+          page.cleanup();
+          if (p % 5 === 0 || p === pdf.numPages) {
+            setProgress(p, pdf.numPages, "Reading " + file.name + " — page " + p + " of " + pdf.numPages);
+            await yieldUI();
+          }
+        }
+        docs.push(doc);
+        renderFiles();
+      }
+      say(totalPages() + " pages ready to search.");
+    } catch (e) {
+      showError("Something went wrong while reading the PDF: " + why(e));
+    } finally {
+      busy = false;
+      hideProgress();
+      els.fileInput.value = "";
+      renderFiles();   // re-check for scanned pages now that indexing is finished
+      runSearch();
+    }
+  }
+
+  function totalPages() {
+    return docs.reduce(function (n, d) { return n + d.pages.length; }, 0);
+  }
+  function blankPages() {
+    var list = [];
+    docs.forEach(function (d) {
+      d.pages.forEach(function (p) { if (!p.ocr && p.norm.length < 16) list.push({ doc: d, page: p }); });
+    });
+    return list;
+  }
+
+  function renderFiles() {
+    els.fileList.innerHTML = "";
+    docs.forEach(function (d) {
+      var li = document.createElement("li");
+      var scanned = d.pages.filter(function (p) { return p.norm.length < 16; }).length;
+      li.innerHTML =
+        '<span class="nm" title="' + esc(d.name) + '">' + esc(d.name) + "</span>" +
+        '<span class="meta">' + d.pages.length + " page" + (d.pages.length === 1 ? "" : "s") +
+        (scanned ? " · " + scanned + " scanned" : "") + "</span>";
+      var x = document.createElement("button");
+      x.className = "x"; x.type = "button"; x.title = "Remove " + d.name; x.textContent = "×";
+      x.onclick = function () { removeDoc(d.id); };
+      li.appendChild(x);
+      els.fileList.appendChild(li);
+    });
+    updateOcrNotice();
+  }
+
+  function removeDoc(id) {
+    var i = docs.findIndex(function (d) { return d.id === id; });
+    if (i < 0) return;
+    try { docs[i].pdf.destroy(); } catch (e) {}
+    if (current && current.doc.id === id) clearPreview();
+    docs.splice(i, 1);
+    renderFiles();
+    runSearch();
+  }
+
+  function updateOcrNotice() {
+    var list = blankPages();
+    if (!list.length || busy) { els.ocrNotice.hidden = true; return; }
+    els.ocrNotice.hidden = false;
+    els.ocrText.textContent = list.length + " page" + (list.length === 1 ? " has" : "s have") +
+      " no text layer (scanned image). Searching will not find them until they are read.";
+  }
+
+  /* ---------- search ---------- */
+
+  function findHits(term, extra) {
+    var q = normKey(term);
+    var ex = normKey(extra);
+    var hits = [];
+    if (q.length < 2) return hits;
+    docs.forEach(function (doc) {
+      doc.pages.forEach(function (pg) {
+        if (!pg.norm) return;
+        if (ex && pg.norm.indexOf(ex) < 0) return;
+        var at = pg.norm.indexOf(q);
+        if (at < 0) return;
+        var positions = [];
+        while (at >= 0 && positions.length < 50) {
+          positions.push(at);
+          at = pg.norm.indexOf(q, at + q.length);
+        }
+        hits.push({ doc: doc, pg: pg, positions: positions, len: q.length });
+      });
+    });
+    return hits;
+  }
+
+  function snippetFor(hit) {
+    var pg = hit.pg, at = hit.positions[0];
+    var start = pg.map[at];
+    var end = pg.map[at + hit.len - 1] + 1;
+    var before = pg.text.slice(Math.max(0, start - 110), start);
+    var match = pg.text.slice(start, end);
+    var after = pg.text.slice(end, end + 150);
+    var clean = function (s) { return esc(s.replace(/\s+/g, " ")); };
+    return (start > 110 ? "…" : "") + clean(before) + "<mark>" + clean(match) + "</mark>" +
+      clean(after) + (end + 150 < pg.text.length ? "…" : "");
+  }
+
+  function hitKey(hit) { return hit.doc.id + ":" + hit.pg.n; }
+
+  var searchTimer = null;
+  function scheduleSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(runSearch, 120);
+  }
+
+  function runSearch() {
+    if (mode === "batch") return;
+    var term = els.q.value.trim();
+    selected.clear();
+    if (!docs.length) {
+      lastHits = [];
+      els.resultCount.textContent = "";
+      els.results.innerHTML = '<p class="empty">Load a PDF, then type a heat number.</p>';
+      return;
+    }
+    if (normKey(term).length < 2) {
+      lastHits = [];
+      els.resultCount.textContent = totalPages() + " pages loaded";
+      els.results.innerHTML = '<p class="empty">Type a heat number to search ' + totalPages() + " pages.</p>";
+      return;
+    }
+    lastHits = findHits(term, els.also.value);
+    renderSingleResults(term);
+  }
+
+  function renderSingleResults(term) {
+    els.results.innerHTML = "";
+    els.resultCount.textContent = lastHits.length
+      ? lastHits.length + " page" + (lastHits.length === 1 ? "" : "s") + " of " + totalPages()
+      : "0 of " + totalPages() + " pages";
+
+    if (!lastHits.length) {
+      var extra = blankPages().length
+        ? " There are still scanned pages that have not been read — try the OCR button above."
+        : "";
+      els.results.innerHTML = '<p class="empty">No page contains <b>' + esc(term) + "</b>." + extra + "</p>";
+      say("No match for " + term);
+      return;
+    }
+
+    var bar = document.createElement("div");
+    bar.className = "toolbar";
+    bar.innerHTML =
+      '<button class="btn primary sm" data-act="all">Save all ' + lastHits.length + " as one PDF</button>" +
+      '<button class="btn sm" data-act="each">Save each separately</button>' +
+      '<button class="btn sm" data-act="sel" disabled>Save checked</button>' +
+      '<span class="spacer"></span>' +
+      '<label>keep <input type="number" id="trailTop" min="0" max="20" step="1" value="' + trail +
+      '"> page(s) after each match</label>';
+    els.results.appendChild(bar);
+
+    bar.querySelector('[data-act="all"]').onclick = function () {
+      savePages(lastHits.map(toRef), safeName(term) + ".pdf");
+    };
+    bar.querySelector('[data-act="each"]').onclick = function () { saveEach(term); };
+    var selBtn = bar.querySelector('[data-act="sel"]');
+    selBtn.onclick = function () {
+      var refs = lastHits.filter(function (h) { return selected.has(hitKey(h)); }).map(toRef);
+      if (refs.length) savePages(refs, safeName(term) + "-selected.pdf");
+    };
+    bindTrail(bar.querySelector("#trailTop"));
+
+    lastHits.forEach(function (hit) {
+      var key = hitKey(hit);
+      var card = document.createElement("div");
+      card.className = "hit";
+      card.dataset.key = key;
+      card.innerHTML =
+        '<div class="top">' +
+          '<input type="checkbox" aria-label="Select page ' + hit.pg.n + '">' +
+          '<span class="where">Page ' + hit.pg.n +
+            "<small>" + esc(hit.doc.name) + (hit.pg.ocr ? " · read by OCR" : "") + "</small></span>" +
+          (hit.positions.length > 1 ? '<span class="pill">' + hit.positions.length + "× on page</span>" : "") +
+          '<button class="btn sm" data-act="view">View</button>' +
+          '<button class="btn sm" data-act="save">Save</button>' +
+        "</div>" +
+        '<div class="snippet">' + snippetFor(hit) + "</div>";
+
+      card.querySelector('[data-act="view"]').onclick = function () { showPage(hit.doc, hit.pg.n); };
+      card.querySelector('[data-act="save"]').onclick = function () {
+        savePages([toRef(hit)], safeName(term) + "-p" + hit.pg.n + ".pdf");
+      };
+      card.querySelector("input").onchange = function (e) {
+        if (e.target.checked) selected.add(key); else selected.delete(key);
+        selBtn.disabled = selected.size === 0;
+        selBtn.textContent = selected.size ? "Save checked (" + selected.size + ")" : "Save checked";
+      };
+      card.querySelector(".snippet").onclick = function () { showPage(hit.doc, hit.pg.n); };
+      els.results.appendChild(card);
+    });
+
+    say(lastHits.length + " matching pages for " + term);
+    showPage(lastHits[0].doc, lastHits[0].pg.n);
+  }
+
+  function toRef(hit) { return { doc: hit.doc, page: hit.pg.n }; }
+
+  function bindTrail(input) {
+    if (!input) return;
+    input.value = trail;
+    input.oninput = function () {
+      trail = Math.max(0, Math.min(20, parseInt(input.value, 10) || 0));
+      if (els.trail !== input) els.trail.value = trail;
+      var top = document.getElementById("trailTop");
+      if (top && top !== input) top.value = trail;
+    };
+  }
+
+  /* ---------- batch search ---------- */
+
+  function runBatchSearch() {
+    var terms = els.batchInput.value.split(/[\r\n,;\t]+/)
+      .map(function (s) { return s.trim(); })
+      .filter(function (s) { return normKey(s).length >= 2; });
+
+    if (!docs.length) { els.results.innerHTML = '<p class="empty">Load a PDF first.</p>'; return; }
+    if (!terms.length) { els.results.innerHTML = '<p class="empty">Paste a list of heat numbers, one per line.</p>'; return; }
+
+    var seen = new Set(), rows = [];
+    terms.forEach(function (t) {
+      var k = normKey(t);
+      if (seen.has(k)) return;
+      seen.add(k);
+      rows.push({ term: t, hits: findHits(t, "") });
+    });
+
+    var found = rows.filter(function (r) { return r.hits.length; });
+    els.resultCount.textContent = found.length + " of " + rows.length + " found";
+    els.results.innerHTML = "";
+
+    var bar = document.createElement("div");
+    bar.className = "toolbar";
+    bar.innerHTML =
+      '<button class="btn primary sm" data-act="one"' + (found.length ? "" : " disabled") + ">Save all found as one PDF</button>" +
+      '<button class="btn sm" data-act="each"' + (found.length ? "" : " disabled") + ">Save one PDF per heat number</button>" +
+      '<span class="spacer"></span>' +
+      '<label>keep <input type="number" id="trailTop" min="0" max="20" step="1" value="' + trail +
+      '"> page(s) after each match</label>';
+    els.results.appendChild(bar);
+    bindTrail(bar.querySelector("#trailTop"));
+
+    bar.querySelector('[data-act="one"]').onclick = function () {
+      var refs = [];
+      found.forEach(function (r) { r.hits.forEach(function (h) { refs.push(toRef(h)); }); });
+      savePages(refs, "certificates.pdf");
+    };
+    bar.querySelector('[data-act="each"]').onclick = async function () {
+      for (var i = 0; i < found.length; i++) {
+        await savePages(found[i].hits.map(toRef), safeName(found[i].term) + ".pdf");
+        await new Promise(function (r) { setTimeout(r, 350); }); // let the browser queue each download
+      }
+    };
+
+    var wrap = document.createElement("div");
+    wrap.className = "scrollx";
+    var table = document.createElement("table");
+    table.innerHTML = "<thead><tr><th>Heat number</th><th>Status</th><th>Found on</th></tr></thead>";
+    var tbody = document.createElement("tbody");
+
+    rows.forEach(function (r) {
+      var tr = document.createElement("tr");
+      var td1 = document.createElement("td"); td1.className = "heat"; td1.textContent = r.term;
+      var td2 = document.createElement("td");
+      td2.innerHTML = r.hits.length
+        ? '<span class="tag ok">found</span>'
+        : '<span class="tag no">missing</span>';
+      var td3 = document.createElement("td");
+      if (r.hits.length) {
+        r.hits.slice(0, 12).forEach(function (h) {
+          var b = document.createElement("button");
+          b.className = "linkish"; b.type = "button";
+          b.textContent = "p." + h.pg.n + " — " + h.doc.name;
+          b.onclick = function () { showPage(h.doc, h.pg.n); };
+          td3.appendChild(b);
+          td3.appendChild(document.createElement("br"));
+        });
+        if (r.hits.length > 12) {
+          var more = document.createElement("span");
+          more.className = "hint";
+          more.textContent = "+" + (r.hits.length - 12) + " more";
+          td3.appendChild(more);
+        }
+      } else {
+        td3.innerHTML = '<span class="hint">not in the loaded pages</span>';
+      }
+      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    els.results.appendChild(wrap);
+    say(found.length + " of " + rows.length + " heat numbers found");
+  }
+
+  /* ---------- building the output PDF ---------- */
+
+  async function savePages(refs, filename) {
+    if (!refs.length) return;
+    if (!window.PDFLib) { showError("The PDF writer did not load. Check the internet connection and reload."); return; }
+    showError("");
+    try {
+      setProgress(0, refs.length, "Building " + filename + "…");
+      var out = await window.PDFLib.PDFDocument.create();
+      var sources = new Map();
+      var used = new Set();
+      // Every page that matched on its own. Trailing pages stop here, so a cert
+      // never swallows the one printed after it.
+      var matched = new Set(refs.map(function (r) { return r.doc.id + ":" + (r.page - 1); }));
+
+      for (var i = 0; i < refs.length; i++) {
+        var ref = refs[i];
+        var src = sources.get(ref.doc.id);
+        if (!src) {
+          src = await window.PDFLib.PDFDocument.load(ref.doc.bytes.slice().buffer, { ignoreEncryption: true });
+          sources.set(ref.doc.id, src);
+        }
+        var count = src.getPageCount();
+        var start = ref.page - 1;
+        var end = start;
+
+        // A cert starts on the page its heat number is printed on. Pages right
+        // after it that carry the same heat are part of the same cert, so they
+        // extend the block; a match that only continues an earlier block adds
+        // nothing. Trailing pages stop at the next match, which is the next cert.
+        if (!matched.has(ref.doc.id + ":" + (start - 1))) {
+          while (matched.has(ref.doc.id + ":" + (end + 1))) end++;
+          for (var j = end + 1; j <= start + trail; j++) {
+            if (matched.has(ref.doc.id + ":" + j)) break;
+            end = j;
+          }
+        }
+        end = Math.min(end, count - 1);
+
+        var wanted = [];
+        for (var idx = start; idx <= end; idx++) {
+          var key = ref.doc.id + ":" + idx;
+          if (!used.has(key)) { used.add(key); wanted.push(idx); }
+        }
+        if (wanted.length) {
+          var copied = await out.copyPages(src, wanted);
+          copied.forEach(function (p) { out.addPage(p); });
+        }
+        setProgress(i + 1, refs.length, "Building " + filename + "…");
+        await yieldUI();
+      }
+
+      if (!out.getPageCount()) { showError("Nothing to save."); return; }
+      downloadBytes(await out.save(), filename);
+      say("Saved " + filename);
+    } catch (e) {
+      showError("Could not build the PDF: " + why(e));
+    } finally {
+      hideProgress();
+    }
+  }
+
+  async function saveEach(term) {
+    for (var i = 0; i < lastHits.length; i++) {
+      var h = lastHits[i];
+      await savePages([toRef(h)], safeName(term) + "-" + safeName(baseName(h.doc.name)) + "-p" + h.pg.n + ".pdf");
+      await new Promise(function (r) { setTimeout(r, 350); });
+    }
+  }
+
+  /* ---------- preview ---------- */
+
+  function clearPreview() {
+    current = null;
+    els.previewNav.hidden = true;
+    els.previewActions.hidden = true;
+    els.previewMeta.textContent = "Pick a result to see the page.";
+    var ctx = els.canvas.getContext("2d");
+    els.canvas.width = 10; els.canvas.height = 10;
+    ctx.clearRect(0, 0, 10, 10);
+  }
+
+  async function showPage(doc, pageNum) {
+    if (!doc) return;
+    pageNum = Math.max(1, Math.min(doc.pages.length, pageNum));
+    current = { doc: doc, page: pageNum };
+    var token = ++renderToken;
+
+    Array.prototype.forEach.call(els.results.querySelectorAll(".hit"), function (el) {
+      el.classList.toggle("active", el.dataset.key === doc.id + ":" + pageNum);
+    });
+
+    els.previewNav.hidden = false;
+    els.previewActions.hidden = false;
+    els.previewMeta.innerHTML = "<b>Page " + pageNum + "</b> of " + doc.pages.length + " — " + esc(doc.name);
+    els.prevPage.disabled = pageNum <= 1;
+    els.nextPage.disabled = pageNum >= doc.pages.length;
+
+    try {
+      var page = await doc.pdf.getPage(pageNum);
+      if (token !== renderToken) return;
+      var base = page.getViewport({ scale: 1 });
+      var targetWidth = Math.max(260, els.canvasWrap.clientWidth - 24);
+      var css = targetWidth / base.width;
+      var dpr = Math.min(2, window.devicePixelRatio || 1);
+      var viewport = page.getViewport({ scale: css * dpr });
+      els.canvas.width = Math.floor(viewport.width);
+      els.canvas.height = Math.floor(viewport.height);
+      els.canvas.style.width = Math.floor(base.width * css) + "px";
+      els.canvas.style.height = "auto";
+      await page.render({ canvasContext: els.canvas.getContext("2d"), viewport: viewport }).promise;
+      page.cleanup();
+    } catch (e) {
+      if (token === renderToken) showError("Could not draw that page: " + why(e));
+    }
+  }
+
+  /* ---------- OCR for scanned pages ---------- */
+
+  async function runOcr() {
+    var targets = blankPages();
+    if (!targets.length || busy) return;
+    busy = true;
+    els.ocrBtn.disabled = true;
+    showError("");
+    var worker = null;
+    try {
+      setProgress(0, targets.length, "Loading the OCR engine (about 10 MB, first time only)…");
+      if (!window.Tesseract) await loadScript(TESS_JS);
+      worker = await window.Tesseract.createWorker("eng", 1, {
+        workerPath: TESS_WORKER, corePath: TESS_CORE, langPath: TESS_LANG
+      });
+
+      var canvas = document.createElement("canvas");
+      var ctx = canvas.getContext("2d");
+
+      for (var i = 0; i < targets.length; i++) {
+        var t = targets[i];
+        setProgress(i, targets.length, "Reading scanned page " + t.page.n + " of " + t.doc.name +
+          " (" + (i + 1) + "/" + targets.length + ")");
+        await yieldUI();
+
+        var page = await t.doc.pdf.getPage(t.page.n);
+        var viewport = page.getViewport({ scale: 2 });
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+        page.cleanup();
+
+        var res = await worker.recognize(canvas);
+        var text = (res && res.data && res.data.text) || "";
+        var idx = buildIndex(text);
+        t.page.text = text;
+        t.page.norm = idx.norm;
+        t.page.map = idx.map;
+        t.page.ocr = true;
+      }
+      setProgress(targets.length, targets.length, "Done reading scanned pages.");
+      say("Finished reading " + targets.length + " scanned pages.");
+    } catch (e) {
+      showError("The OCR engine could not be loaded (" + why(e) + "). It is downloaded from the internet the " +
+        "first time it is used, so a connection is needed for that one step — a company firewall may also be blocking it. " +
+        "Searching still works normally on PDFs that have a text layer.");
+    } finally {
+      if (worker) { try { await worker.terminate(); } catch (e2) {} }
+      busy = false;
+      els.ocrBtn.disabled = false;
+      hideProgress();
+      renderFiles();
+      if (mode === "single") runSearch(); else runBatchSearch();
+    }
+  }
+
+  /* ---------- wiring ---------- */
+
+  function setMode(next) {
+    mode = next;
+    var isSingle = next === "single";
+    els.tabSingleBtn.setAttribute("aria-selected", String(isSingle));
+    els.tabBatchBtn.setAttribute("aria-selected", String(!isSingle));
+    els.tabSingle.hidden = !isSingle;
+    els.tabBatch.hidden = isSingle;
+    els.results.innerHTML = '<p class="empty">' +
+      (isSingle ? "Type a heat number to search." : "Paste a list of heat numbers, then press Search the list.") + "</p>";
+    els.resultCount.textContent = "";
+    if (isSingle) { runSearch(); els.q.focus(); } else { els.batchInput.focus(); }
+  }
+
+  els.drop.addEventListener("click", function () { els.fileInput.click(); });
+  els.fileInput.addEventListener("change", function (e) { addFiles(e.target.files); });
+
+  ["dragenter", "dragover"].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      e.preventDefault();
+      els.drop.classList.add("over");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      e.preventDefault();
+      if (ev === "drop" || e.target === document || !e.relatedTarget) els.drop.classList.remove("over");
+      if (ev === "drop" && e.dataTransfer && e.dataTransfer.files.length) addFiles(e.dataTransfer.files);
+    });
+  });
+
+  els.q.addEventListener("input", scheduleSearch);
+  els.also.addEventListener("input", scheduleSearch);
+  els.q.addEventListener("keydown", function (e) { if (e.key === "Enter") runSearch(); });
+  els.tabSingleBtn.addEventListener("click", function () { setMode("single"); });
+  els.tabBatchBtn.addEventListener("click", function () { setMode("batch"); });
+  els.runBatch.addEventListener("click", runBatchSearch);
+  els.clearBatch.addEventListener("click", function () { els.batchInput.value = ""; els.batchInput.focus(); });
+  els.ocrBtn.addEventListener("click", runOcr);
+
+  els.prevPage.addEventListener("click", function () { if (current) showPage(current.doc, current.page - 1); });
+  els.nextPage.addEventListener("click", function () { if (current) showPage(current.doc, current.page + 1); });
+  els.saveThis.addEventListener("click", function () {
+    if (!current) return;
+    var term = mode === "single" && els.q.value.trim() ? els.q.value.trim() : baseName(current.doc.name);
+    savePages([{ doc: current.doc, page: current.page }], safeName(term) + "-p" + current.page + ".pdf");
+  });
+  bindTrail(els.trail);
+
+  document.addEventListener("keydown", function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+      e.preventDefault(); setMode("single"); els.q.select();
+    }
+  });
+
+  if (window.pdfjsLib) {
+    try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; } catch (e) {}
+  } else {
+    showError("The PDF engine did not load. This page needs an internet connection the first time it is opened.");
+  }
+  clearPreview();
+})();
+</script>
+</body>
+</html>
