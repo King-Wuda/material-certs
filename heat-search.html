@@ -86,7 +86,8 @@
   .progress{margin-top:12px}
   .track{height:6px;border-radius:999px;background:var(--line);overflow:hidden}
   .track > i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s}
-  .progress p{margin:6px 0 0;font-size:12.5px;color:var(--muted)}
+  .progress p{margin:0;font-size:12.5px;color:var(--muted)}
+  .progress-row{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-top:7px}
 
   .loaded{margin-top:12px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:13px}
   .loaded b{font-variant-numeric:tabular-nums}
@@ -223,7 +224,10 @@
 
       <div class="progress" id="progress" hidden>
         <div class="track"><i id="bar"></i></div>
-        <p id="progressText"></p>
+        <div class="progress-row">
+          <p id="progressText"></p>
+          <button class="btn sm" id="stopScan" type="button">Stop</button>
+        </div>
       </div>
 
       <div class="loaded" id="loaded" hidden>
@@ -328,7 +332,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var els = {
     drop: $("drop"), fileInput: $("fileInput"), fileList: $("fileList"),
-    progress: $("progress"), bar: $("bar"), progressText: $("progressText"),
+    progress: $("progress"), bar: $("bar"), progressText: $("progressText"), stopScan: $("stopScan"),
     ocrNotice: $("ocrNotice"), ocrText: $("ocrText"), ocrBtn: $("ocrBtn"), errNotice: $("errNotice"),
     loaded: $("loaded"), loadedText: $("loadedText"), toggleFiles: $("toggleFiles"),
     anywhere: $("anywhere"), scanFolder: $("scanFolder"), rescan: $("rescan"), folderName: $("folderName"), dirInput: $("dirInput"),
@@ -382,7 +386,7 @@
     els.bar.style.width = total ? Math.round((done / total) * 100) + "%" : "0%";
     els.progressText.textContent = label;
   }
-  function hideProgress() { els.progress.hidden = true; els.bar.style.width = "0%"; }
+  function hideProgress() { els.progress.hidden = true; els.bar.style.width = "0%"; els.stopScan.disabled = false; }
 
   // While a folder is being read, the controls that would start another read are
   // disabled rather than silently ignored.
@@ -554,6 +558,19 @@
     return out;
   }
 
+  // OCR confuses the same handful of shapes every time. Folding both sides lets
+  // a page read as "SA1Z34" still answer a search for 5A1234 — marked as a near
+  // match, never passed off as an exact one.
+  var OCR_FOLD = { O: "0", Q: "0", D: "0", I: "1", L: "1", Z: "2", E: "3", A: "4", S: "5", G: "6", T: "7", B: "8" };
+  function foldKey(v) {
+    var out = "";
+    for (var i = 0; i < v.length; i++) {
+      var c = v.charAt(i);
+      out += OCR_FOLD[c] || c;
+    }
+    return out;
+  }
+
   // A heat number matches its column value outright, or as one part of it, or
   // with a short suffix the mill added ("A12345-1" for A12345).
   function heatMatch(h, q) {
@@ -576,6 +593,34 @@
       if (norm.length >= 2) terms.push({ raw: raw, norm: norm });
     }
     return terms;
+  }
+
+  // A page that is mostly one big image is a scan, whatever text it carries.
+  // Office printers OCR as they scan and embed the result, so "has text" is not
+  // the same as "has the text that is printed on the paper".
+  async function imageCoverage(page) {
+    try {
+      var ops = await page.getOperatorList();
+      var OPS = window.pdfjsLib.OPS;
+      var vp = page.getViewport({ scale: 1 });
+      var m = [1, 0, 0, 1, 0, 0], stack = [], area = 0;
+      var mul = function (a, b) {
+        return [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1],
+                a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3],
+                a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
+      };
+      for (var k = 0; k < ops.fnArray.length; k++) {
+        var fn = ops.fnArray[k];
+        if (fn === OPS.save) stack.push(m.slice());
+        else if (fn === OPS.restore) m = stack.pop() || [1, 0, 0, 1, 0, 0];
+        else if (fn === OPS.transform) m = mul(m, ops.argsArray[k]);
+        else if (fn === OPS.paintImageXObject || fn === OPS.paintJpegXObject ||
+                 fn === OPS.paintImageMaskXObject) {
+          area = Math.max(area, Math.abs(m[0] * m[3] - m[1] * m[2]));
+        }
+      }
+      return area / (vp.width * vp.height);
+    } catch (e) { return 0; }
   }
 
   function pageTextFromContent(content) {
@@ -614,6 +659,8 @@
     if (!window.pdfjsLib) { showError("The PDF engine did not load. Check the internet connection and reload."); return; }
 
     setBusy(true); showError("");
+    ocrStop = false;
+    ocrTrouble = "";
     var skipped = [], partial = [];
     try {
       for (var f = 0; f < files.length; f++) {
@@ -646,7 +693,9 @@
             try {
               heats = extractHeats(linesFromContent(content, page.getViewport({ scale: 1 }).height));
             } catch (e) { /* an odd layout is not worth losing the page over */ }
-            doc.pages.push({ n: p, text: text, norm: idx.norm, map: idx.map, ocr: false, heats: heats });
+            var scanned = (await imageCoverage(page)) > 0.5;
+            doc.pages.push({ n: p, text: text, norm: idx.norm, map: idx.map, ocr: false,
+                             scan: scanned, heats: heats });
             if (idx.norm.length < 16) doc.blank++;
             page.cleanup();
             if (p % 5 === 0 || p === pdf.numPages) {
@@ -662,6 +711,11 @@
         }
         docs.push(doc);
         renderFiles();
+        if (!ocrTrouble && !ocrStop) {
+          try { await readScansIn(doc, f, files.length); } catch (e) { ocrTrouble = why(e); }
+          renderFiles();
+          if (mode === "single") runSearch();
+        }
       }
       var trouble = [];
       if (skipped.length) {
@@ -674,11 +728,14 @@
         trouble.push(partial.length + (partial.length === 1 ? " file was" : " files were") +
           " only read as far as it would go: " + partial.slice(0, 4).join(", "));
       }
-      if (trouble.length) showError(trouble.join("  "));
+      if (ocrTrouble) trouble.push("The scanned pages could not be read: " + ocrTrouble +
+        ". The OCR engine is downloaded the first time it is used, so that one step needs a connection.");
+      if (trouble.length) showError(trouble.join("   "));
       say(docs.length + " files, " + totalPages() + " pages ready to search.");
     } catch (e) {
       showError("Something went wrong while reading the PDFs: " + why(e));
     } finally {
+      await releaseOcr();
       setBusy(false);
       hideProgress();
       els.fileInput.value = "";
@@ -894,10 +951,12 @@
   function totalPages() {
     return docs.reduce(function (n, d) { return n + d.pages.length; }, 0);
   }
+  function needsOcr(pg) { return !pg.ocr && (pg.scan || pg.norm.length < 16); }
+
   function blankPages() {
     var list = [];
     docs.forEach(function (d) {
-      d.pages.forEach(function (p) { if (!p.ocr && p.norm.length < 16) list.push({ doc: d, page: p }); });
+      d.pages.forEach(function (p) { if (needsOcr(p)) list.push({ doc: d, page: p }); });
     });
     return list;
   }
@@ -913,7 +972,7 @@
     els.fileList.innerHTML = "";
     docs.forEach(function (d) {
       var li = document.createElement("li");
-      var scanned = d.pages.filter(function (p) { return p.norm.length < 16; }).length;
+      var scanned = d.pages.filter(needsOcr).length;
       li.innerHTML =
         '<span class="nm" title="' + esc(d.path) + '">' + esc(d.name) +
           (d.path !== d.name ? '<span class="path">  ' + esc(d.path.slice(0, d.path.length - d.name.length)) + "</span>" : "") +
@@ -943,8 +1002,11 @@
     var list = blankPages();
     if (!list.length || busy) { els.ocrNotice.hidden = true; return; }
     els.ocrNotice.hidden = false;
-    els.ocrText.textContent = list.length + " page" + (list.length === 1 ? " has" : "s have") +
-      " no text layer (scanned image). Searching will not find them until they are read.";
+    var printerLayer = list.filter(function (i) { return i.page.scan && i.page.norm.length >= 16; }).length;
+    els.ocrText.textContent = list.length + " scanned page" + (list.length === 1 ? "" : "s") +
+      " still to read" +
+      (printerLayer ? " \u2014 " + printerLayer + " of them carry the scanner's own text, which is usually wrong" : "") +
+      ". They cannot be searched until they are.";
   }
 
   /* ---------- search ---------- */
@@ -962,6 +1024,7 @@
   // pages where the number only turns up somewhere in the text.
   function findHits(heatTerm, wordsStr, anywhere) {
     var q = normKey(heatTerm);
+    var folded = foldKey(q);
     var terms = parseTerms(wordsStr);
     var column = [], text = [];
 
@@ -980,13 +1043,19 @@
           return;
         }
 
-        var found = [];
+        var found = [], near = [];
         if (!anywhere) {
-          (pg.heats || []).forEach(function (h) { if (heatMatch(h, q)) found.push(h); });
+          (pg.heats || []).forEach(function (h) {
+            if (heatMatch(h, q)) found.push(h);
+            else if (pg.ocr && foldKey(h.v) === folded && h.v.length === q.length) near.push(h);
+          });
         }
         if (found.length) {
           column.push({ doc: doc, pg: pg, kind: "column", heats: found,
                         positions: pagePositions(pg, q), len: q.length });
+        } else if (near.length) {
+          column.push({ doc: doc, pg: pg, kind: "near", heats: near,
+                        positions: pagePositions(pg, near[0].v), len: near[0].v.length });
         } else if (pg.norm.indexOf(q) >= 0) {
           text.push({ doc: doc, pg: pg, kind: anywhere ? "words" : "loose", heats: [],
                       positions: pagePositions(pg, q), len: q.length });
@@ -1052,6 +1121,7 @@
     var res = findHits(heat, words, anywhere);
     var label = heat || res.terms.map(function (t) { return t.raw; }).join(" ");
     var useLoose = anywhere || !heat || !res.column.length;
+    res.column.sort(function (a, b) { return (a.kind === "near" ? 1 : 0) - (b.kind === "near" ? 1 : 0); });
     lastHits = res.column.concat(useLoose ? res.text : []);
 
     els.results.innerHTML = "";
@@ -1114,6 +1184,10 @@
         badge = '<span class="pill ok" title="' + esc(h.line) + '">' +
           esc(h.label || "Heat") + " \u2192 " + esc(h.raw) +
           (hit.heats.length > 1 ? " +" + (hit.heats.length - 1) : "") + "</span>";
+      } else if (hit.kind === "near") {
+        var n = hit.heats[0];
+        badge = '<span class="pill warn" title="' + esc(n.line) + '">' +
+          esc(n.label || "Heat") + " \u2192 " + esc(n.raw) + "  (OCR near match)</span>";
       } else if (hit.kind === "loose") {
         badge = '<span class="pill warn">not in a HEAT column</span>';
       }
@@ -1176,7 +1250,10 @@
       if (seen.has(k)) return;
       seen.add(k);
       var r = findHits(t, els.also.value, els.anywhere.checked);
-      rows.push({ term: t, hits: r.column.length ? r.column : r.text, loose: !r.column.length && r.text.length > 0 });
+      r.column.sort(function (a, b) { return (a.kind === "near" ? 1 : 0) - (b.kind === "near" ? 1 : 0); });
+      rows.push({ term: t, hits: r.column.length ? r.column : r.text,
+                  loose: !r.column.length && r.text.length > 0,
+                  near: r.column.length > 0 && r.column.every(function (h) { return h.kind === "near"; }) });
     });
 
     var found = rows.filter(function (r) { return r.hits.length; });
@@ -1218,7 +1295,8 @@
       var td1 = document.createElement("td"); td1.className = "heat"; td1.textContent = r.term;
       var td2 = document.createElement("td");
       td2.innerHTML = r.hits.length
-        ? (r.loose ? '<span class="tag warn">not in a HEAT column</span>' : '<span class="tag ok">found</span>')
+        ? (r.loose ? '<span class="tag warn">not in a HEAT column</span>'
+                   : (r.near ? '<span class="tag warn">OCR near match</span>' : '<span class="tag ok">found</span>'))
         : '<span class="tag no">missing</span>';
       var td3 = document.createElement("td");
       if (r.hits.length) {
@@ -1410,61 +1488,11 @@
 
   /* ---------- OCR for scanned pages ---------- */
 
-  async function runOcr() {
-    var targets = blankPages();
-    if (!targets.length || busy) return;
-    setBusy(true);
-    showError("");
-    var worker = null;
-    try {
-      setProgress(0, targets.length, "Loading the OCR engine (about 10 MB, first time only)…");
-      if (!window.Tesseract) await loadScript(TESS_JS);
-      worker = await window.Tesseract.createWorker("eng", 1, {
-        workerPath: TESS_WORKER, corePath: TESS_CORE, langPath: TESS_LANG
-      });
+  var ocrWorker = null;
+  var ocrStop = false;
 
-      var canvas = document.createElement("canvas");
-      var ctx = canvas.getContext("2d");
-
-      for (var i = 0; i < targets.length; i++) {
-        var t = targets[i];
-        setProgress(i, targets.length, "Reading scanned page " + t.page.n + " of " + t.doc.name +
-          " (" + (i + 1) + "/" + targets.length + ")");
-        await yieldUI();
-
-        var page = await t.doc.pdf.getPage(t.page.n);
-        var viewport = page.getViewport({ scale: 2 });
-        canvas.width = Math.floor(viewport.width);
-        canvas.height = Math.floor(viewport.height);
-        await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-        page.cleanup();
-
-        var res = await worker.recognize(canvas, {}, { text: true, blocks: true });
-        var text = (res && res.data && res.data.text) || "";
-        var idx = buildIndex(text);
-        t.page.text = text;
-        t.page.norm = idx.norm;
-        t.page.map = idx.map;
-        t.page.ocr = true;
-        t.page.heats = extractHeats(ocrLines(res && res.data, text));
-      }
-      setProgress(targets.length, targets.length, "Done reading scanned pages.");
-      say("Finished reading " + targets.length + " scanned pages.");
-    } catch (e) {
-      showError("The OCR engine could not be loaded (" + why(e) + "). It is downloaded from the internet the " +
-        "first time it is used, so a connection is needed for that one step — a company firewall may also be blocking it. " +
-        "Searching still works normally on PDFs that have a text layer.");
-    } finally {
-      if (worker) { try { await worker.terminate(); } catch (e2) {} }
-      setBusy(false);
-      hideProgress();
-      renderFiles();
-      if (mode === "single") runSearch(); else runBatchSearch();
-    }
-  }
-
-  // OCR gives word boxes when it can; without them the column logic is skipped and
-  // only "Heat No. 12345" written out on a line is picked up.
+  // OCR gives word boxes when it can; without them the column logic is skipped
+  // and only "Heat No. 12345" written out on a line is picked up.
   function ocrLines(data, text) {
     var raw = [];
     var blocks = (data && data.blocks) || [];
@@ -1483,6 +1511,140 @@
     return String(text || "").split(/\r?\n/).map(function (t) {
       return { y: 0, items: [], text: t };
     });
+  }
+
+  async function getOcrWorker(onProgress) {
+    if (ocrWorker) return ocrWorker;
+    if (onProgress) onProgress();
+    if (!window.Tesseract) await loadScript(TESS_JS);
+    ocrWorker = await window.Tesseract.createWorker("eng", 1, {
+      workerPath: TESS_WORKER, corePath: TESS_CORE, langPath: TESS_LANG
+    });
+    return ocrWorker;
+  }
+
+  async function releaseOcr() {
+    if (!ocrWorker) return;
+    var w = ocrWorker; ocrWorker = null;
+    try { await w.terminate(); } catch (e) {}
+  }
+
+  // Reading a scan is slow, so each page is remembered against the file it came
+  // from and never read twice.
+  function ocrKey(doc, pg) { return "ocr|" + doc.path + "|" + doc.size + "|" + pg.n; }
+
+  function cacheGet(key) {
+    return kv("readonly", function (store) { return store.get(key); });
+  }
+  function cachePut(key, value) {
+    return kv("readwrite", function (store) { return store.put(value, key); });
+  }
+
+  function applyOcr(pg, text, lines, conf) {
+    var idx = buildIndex(text);
+    pg.text = text;
+    pg.norm = idx.norm;
+    pg.map = idx.map;
+    pg.ocr = true;
+    pg.conf = conf;
+    pg.heats = [];
+    try { pg.heats = extractHeats(lines); } catch (e) {}
+  }
+
+  // Tesseract reads a scan best at something near its own resolution. Rendering
+  // it much larger invents detail and costs accuracy, so start modest and only
+  // go bigger when the first read comes back poor.
+  async function readScannedPage(doc, pg, pdfPage, report) {
+    var cached = await cacheGet(ocrKey(doc, pg));
+    if (cached && cached.text) {
+      applyOcr(pg, cached.text, cached.lines || [], cached.conf || 0);
+      return "cached";
+    }
+
+    var worker = await getOcrWorker(report);
+    var canvas = document.createElement("canvas");
+    var ctx = canvas.getContext("2d", { willReadFrequently: true });
+    var best = null;
+
+    for (var attempt = 0; attempt < 2 && !ocrStop; attempt++) {
+      var scale = attempt === 0 ? 2 : 3;
+      var vp = pdfPage.getViewport({ scale: scale });
+      if (Math.max(vp.width, vp.height) > 4200) vp = pdfPage.getViewport({ scale: scale * 4200 / Math.max(vp.width, vp.height) });
+      canvas.width = Math.floor(vp.width);
+      canvas.height = Math.floor(vp.height);
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await pdfPage.render({ canvasContext: ctx, viewport: vp }).promise;
+
+      var res = await worker.recognize(canvas, {}, { text: true, blocks: true });
+      var text = (res && res.data && res.data.text) || "";
+      var conf = (res && res.data && res.data.confidence) || 0;
+      var lines = ocrLines(res && res.data, text);
+      if (!best || conf > best.conf) best = { text: text, conf: conf, lines: lines };
+      if (conf >= 75 && HEAT_WORD.test(text)) break;   // good enough, and it looks like a cert
+    }
+
+    canvas.width = canvas.height = 0;
+    if (!best) return "stopped";
+    applyOcr(pg, best.text, best.lines, best.conf);
+    await cachePut(ocrKey(doc, pg), { text: best.text, lines: best.lines, conf: best.conf });
+    return "read";
+  }
+
+  // Read every scanned page in a file that has just been indexed.
+  async function readScansIn(doc, fileIndex, fileCount) {
+    var targets = doc.pages.filter(needsOcr);
+    if (!targets.length) return;
+    for (var i = 0; i < targets.length && !ocrStop; i++) {
+      var pg = targets[i];
+      setProgress(fileIndex + (i + 1) / targets.length, fileCount,
+        "Reading scanned page " + pg.n + " of " + doc.path +
+        "   (" + (i + 1) + " of " + targets.length + " scanned page" + (targets.length === 1 ? "" : "s") + ")");
+      await yieldUI();
+      try {
+        var pdfPage = await doc.pdf.getPage(pg.n);
+        await readScannedPage(doc, pg, pdfPage, function () {
+          setProgress(fileIndex, fileCount, "Loading the OCR engine (about 10 MB, first time only)\u2026");
+        });
+        pdfPage.cleanup();
+      } catch (e) {
+        ocrTrouble = why(e);
+        return;      // the engine is not going to work for the next page either
+      }
+    }
+  }
+
+  // The button is for anything that was skipped — a stopped run, or pages added
+  // while the engine was unavailable.
+  async function runOcr() {
+    var targets = blankPages();
+    if (!targets.length || busy) return;
+    setBusy(true);
+    showError("");
+    ocrStop = false;
+    ocrTrouble = "";
+    try {
+      var byDoc = [];
+      docs.forEach(function (d) { if (d.pages.some(needsOcr)) byDoc.push(d); });
+      for (var i = 0; i < byDoc.length && !ocrStop; i++) {
+        await readScansIn(byDoc[i], i, byDoc.length);
+      }
+      if (ocrTrouble) showOcrTrouble();
+      else say("Finished reading the scanned pages.");
+    } finally {
+      await releaseOcr();
+      setBusy(false);
+      hideProgress();
+      renderFiles();
+      if (mode === "single") runSearch(); else runBatchSearch();
+    }
+  }
+
+  var ocrTrouble = "";
+  function showOcrTrouble() {
+    showError("The OCR engine could not be loaded (" + ocrTrouble + "). It is downloaded from the internet the " +
+      "first time it is used, so a connection is needed for that one step \u2014 a company firewall may also be " +
+      "blocking it. Pages that are scans cannot be searched until they are read.");
   }
 
   /* ---------- wiring ---------- */
@@ -1534,6 +1696,11 @@
   els.runBatch.addEventListener("click", runBatchSearch);
   els.clearBatch.addEventListener("click", function () { els.batchInput.value = ""; els.batchInput.focus(); });
   els.ocrBtn.addEventListener("click", runOcr);
+  els.stopScan.addEventListener("click", function () {
+    ocrStop = true;
+    els.stopScan.disabled = true;
+    els.progressText.textContent = "Stopping after this page\u2026";
+  });
 
   els.prevPage.addEventListener("click", function () { if (current) showPage(current.doc, current.page - 1); });
   els.nextPage.addEventListener("click", function () { if (current) showPage(current.doc, current.page + 1); });

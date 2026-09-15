@@ -95,12 +95,39 @@ list or MTR log. It reports which ones are in the folder and which are missing, 
 file and page for each one found, and can write out one PDF per heat number — which is
 most of the work of assembling a submittal.
 
-### Scanned certs
+### Certs that were scanned on a printer
 
-Certs that are scans have no text layer, so there is nothing to search until the page is
-read by OCR. The tool counts those pages and offers a **Read scanned pages (OCR)** button.
-The OCR engine (~10 MB) is downloaded the first time it is used, and recognition takes a
-few seconds per page. Everything else works without it.
+Most office printers OCR a page as they scan it and embed the result in the PDF. That
+text is often wrong — `5A1234` comes out as `SA12E4`, `B78890` as `B7BB9O` — and because
+the page *has* text, nothing looks amiss until a search finds the wrong cert, or none.
+
+So the tool decides what is a scan by looking at the page, not at whether it has text: a
+page covered by a full-page image is a scan, and its text is read again from the image
+with Tesseract, replacing whatever the scanner put there. That happens automatically while
+the folder is being read, and every page read is remembered against the file it came from,
+so a cert is only ever read once, however often the page is reloaded. **Stop** halts a long
+run; the button in the notice picks up whatever is left.
+
+Reading a scanned page takes a second or two, so the first pass over a folder of scans is
+slow. Two things make it bearable: it only happens once, and search works on the certs
+already read while the rest are still going.
+
+If a scan is poor enough that OCR still misreads a heat number, a search for the real
+number will match a value that differs only in the characters OCR confuses — `O/0`, `I/1`,
+`S/5`, `B/8`, `Z/2`, `G/6` — and label it **OCR near match** so it is never mistaken for a
+certain one.
+
+### Doing the OCR once, up front
+
+For a whole archive, `ocr-certs.bat` (`ocr-certs.sh` on Mac and Linux) is faster and more
+accurate than reading scans in the browser. It runs [OCRmyPDF](https://ocrmypdf.readthedocs.io)
+over every PDF under the folder it sits in and writes searchable copies to a folder named
+`<that folder>-ocr`, leaving the originals untouched. Point `heat-search.html` at the new
+folder and searches are instant, with no OCR in the browser at all.
+
+It needs OCRmyPDF installed once (`pip install ocrmypdf`, plus Tesseract and Ghostscript).
+The run is incremental — certs already converted are skipped — and a file OCRmyPDF cannot
+read is copied across unchanged rather than lost.
 
 ## Notes
 
