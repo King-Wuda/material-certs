@@ -77,6 +77,17 @@ Both boxes work on their own. Leave the heat number empty and search `"con reduc
 matched anywhere on the page, and ignore punctuation the same way, so `50x40` finds
 `50 X 40` and `"con reducer"` finds `CON. REDUCER`.
 
+### Reading and saving what it finds
+
+The preview beside the results shows the matching page. **Full screen** — or the `F` key
+— gives it the whole window: `+` and `−` zoom in on the small print, **Fit** returns to
+the whole page, the arrow keys turn pages, and `Esc` closes it.
+
+**Save** writes the cert out as its own PDF: one file per match, every match merged into
+one file, or just the ones you tick. `keep N page(s) after each match` picks up
+continuation pages when a cert runs longer than one page, and stops at the next cert
+rather than swallowing it.
+
 ### Searching a whole list
 
 The **A list of them** tab takes a column of heat numbers pasted straight from a packing
