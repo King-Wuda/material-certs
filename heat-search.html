@@ -71,6 +71,9 @@
   .panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
   .panel-head h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted)}
 
+  #folderRow{margin-bottom:12px}
+  #folderName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .files li .path{font-size:11.5px;color:var(--muted);font-family:var(--mono)}
   .drop{
     border:2px dashed var(--line);border-radius:var(--radius);padding:26px 18px;text-align:center;
     cursor:pointer;transition:border-color .15s,background .15s;background:transparent;width:100%;display:block;
@@ -190,11 +193,18 @@
 
     <section class="panel">
       <h2>1 · Load certificates</h2>
+      <div class="btnrow" id="folderRow">
+        <button class="btn primary" id="scanFolder" type="button">Scan a folder</button>
+        <button class="btn" id="rescan" type="button" hidden>Rescan</button>
+        <span class="hint" id="folderName"></span>
+      </div>
+
       <button type="button" class="drop" id="drop">
         <strong>Drop PDFs here, or click to choose</strong>
         <span>One combined cert package or many separate files</span>
       </button>
       <input type="file" id="fileInput" accept="application/pdf,.pdf" multiple hidden>
+      <input type="file" id="dirInput" webkitdirectory directory multiple hidden>
 
       <div class="progress" id="progress" hidden>
         <div class="track"><i id="bar"></i></div>
@@ -249,7 +259,7 @@
         <h2>Results</h2>
         <span class="hint" id="resultCount"></span>
       </div>
-      <div id="results"><p class="empty">Load a PDF, then type a heat number.</p></div>
+      <div id="results"><p class="empty">Scan a folder or drop in some PDFs, then type a heat number.</p></div>
     </section>
 
   </div>
@@ -293,6 +303,7 @@
     drop: $("drop"), fileInput: $("fileInput"), fileList: $("fileList"),
     progress: $("progress"), bar: $("bar"), progressText: $("progressText"),
     ocrNotice: $("ocrNotice"), ocrText: $("ocrText"), ocrBtn: $("ocrBtn"), errNotice: $("errNotice"),
+    scanFolder: $("scanFolder"), rescan: $("rescan"), folderName: $("folderName"), dirInput: $("dirInput"),
     q: $("q"), also: $("also"), batchInput: $("batchInput"), runBatch: $("runBatch"), clearBatch: $("clearBatch"),
     tabSingle: $("tabSingle"), tabBatch: $("tabBatch"),
     tabSingleBtn: $("tabSingleBtn"), tabBatchBtn: $("tabBatchBtn"),
@@ -305,6 +316,10 @@
 
   var docs = [];            // loaded PDFs
   var nextDocId = 1;
+  var folderLabel = "";     // the folder these certs came from
+  var dirHandle = null;     // a folder the browser let us keep (Chrome/Edge)
+  var MAX_FILES = 400;      // a guard against pointing it at an entire drive
+  var MAX_DEPTH = 6;
   var mode = "single";      // "single" | "batch"
   var lastHits = [];        // flat list of current single-search hits
   var selected = new Set(); // keys of checked hits
@@ -417,19 +432,32 @@
 
   /* ---------- loading PDFs ---------- */
 
-  async function addFiles(fileList) {
+  // Every entry is {file, path}: path is where the PDF sits relative to the folder
+  // that was scanned, which is what you need in order to go and find it again.
+  async function addFiles(list) {
     if (busy) return;
-    var files = Array.prototype.slice.call(fileList).filter(function (f) {
-      return /\.pdf$/i.test(f.name) || f.type === "application/pdf";
+    var items = Array.prototype.slice.call(list).map(function (f) {
+      if (f && f.file) return f;
+      return { file: f, path: (f && f.webkitRelativePath) || (f && f.name) || "" };
+    }).filter(function (it) {
+      var f = it.file;
+      return f && (/\.pdf$/i.test(f.name) || f.type === "application/pdf");
     });
-    if (!files.length) { showError("Those files are not PDFs."); return; }
+    if (!items.length) { showError("No PDFs there."); return; }
+
+    var have = {};
+    docs.forEach(function (d) { have[d.path + "|" + d.size] = true; });
+    var files = items.filter(function (it) { return !have[it.path + "|" + it.file.size]; });
+    if (!files.length) { showError(""); say("Those PDFs are already loaded."); return; }
     if (!window.pdfjsLib) { showError("The PDF engine did not load. Check the internet connection and reload."); return; }
 
     busy = true; showError("");
+    var skipped = [];
     try {
       for (var f = 0; f < files.length; f++) {
-        var file = files[f];
-        setProgress(0, 1, "Reading " + file.name + "…");
+        var file = files[f].file;
+        var where = files[f].path || file.name;
+        setProgress(f, files.length, "Reading " + where);
         await yieldUI();
 
         var bytes = new Uint8Array(await file.arrayBuffer());
@@ -437,11 +465,12 @@
         try {
           pdf = await window.pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
         } catch (e) {
-          showError("Could not open " + file.name + " — it may be password protected or damaged.");
+          skipped.push(where);
           continue;
         }
 
-        var doc = { id: nextDocId++, name: file.name, bytes: bytes, pdf: pdf, pages: [], blank: 0 };
+        var doc = { id: nextDocId++, name: file.name, path: where, size: file.size,
+                    bytes: bytes, pdf: pdf, pages: [], blank: 0 };
         for (var p = 1; p <= pdf.numPages; p++) {
           var page = await pdf.getPage(p);
           var content = await page.getTextContent();
@@ -451,23 +480,222 @@
           if (idx.norm.length < 16) doc.blank++;
           page.cleanup();
           if (p % 5 === 0 || p === pdf.numPages) {
-            setProgress(p, pdf.numPages, "Reading " + file.name + " — page " + p + " of " + pdf.numPages);
+            setProgress(f + p / pdf.numPages, files.length,
+              "Reading " + where + " \u2014 page " + p + " of " + pdf.numPages +
+              (files.length > 1 ? "   (file " + (f + 1) + " of " + files.length + ")" : ""));
             await yieldUI();
           }
         }
         docs.push(doc);
         renderFiles();
       }
-      say(totalPages() + " pages ready to search.");
+      if (skipped.length) {
+        showError(skipped.length + (skipped.length === 1 ? " file" : " files") +
+          " could not be opened \u2014 password protected or damaged: " + skipped.slice(0, 4).join(", ") +
+          (skipped.length > 4 ? " and " + (skipped.length - 4) + " more" : ""));
+      }
+      say(docs.length + " files, " + totalPages() + " pages ready to search.");
     } catch (e) {
-      showError("Something went wrong while reading the PDF: " + why(e));
+      showError("Something went wrong while reading the PDFs: " + why(e));
     } finally {
       busy = false;
       hideProgress();
       els.fileInput.value = "";
+      els.dirInput.value = "";
       renderFiles();   // re-check for scanned pages now that indexing is finished
       runSearch();
     }
+  }
+
+  /* ---------- finding the PDFs in a folder ---------- */
+
+  // 1. Served from the folder (python -m http.server, or any web server):
+  //    walk the directory listing the server sends back. No clicks at all.
+  function servedFrom() {
+    return location.protocol === "http:" || location.protocol === "https:";
+  }
+
+  async function listServedFolder(url, depth, found, seen) {
+    if (found.length >= MAX_FILES || depth > MAX_DEPTH || seen[url]) return;
+    seen[url] = true;
+    var html;
+    try {
+      var res = await fetch(url, { headers: { Accept: "text/html" } });
+      if (!res.ok) return;
+      var type = res.headers.get("content-type") || "";
+      if (type.indexOf("html") < 0) return;   // not a directory listing
+      html = await res.text();
+    } catch (e) { return; }
+
+    var doc = new DOMParser().parseFromString(html, "text/html");
+    var links = doc.querySelectorAll("a[href]");
+    var dirs = [];
+    for (var i = 0; i < links.length; i++) {
+      var href = links[i].getAttribute("href");
+      if (!href || href.charAt(0) === "#" || href.indexOf("?") === 0) continue;
+      var abs;
+      try { abs = new URL(href, url); } catch (e) { continue; }
+      if (abs.origin !== location.origin) continue;
+      abs.search = ""; abs.hash = "";
+      if (abs.pathname.length <= new URL(url).pathname.length &&
+          abs.pathname !== new URL(url).pathname) continue;   // ".." and sort links
+      if (/\.pdf$/i.test(abs.pathname)) {
+        if (found.indexOf(abs.href) < 0 && found.length < MAX_FILES) found.push(abs.href);
+      } else if (abs.pathname.charAt(abs.pathname.length - 1) === "/" && abs.href !== url) {
+        dirs.push(abs.href);
+      }
+    }
+    for (var d = 0; d < dirs.length && found.length < MAX_FILES; d++) {
+      await listServedFolder(dirs[d], depth + 1, found, seen);
+    }
+  }
+
+  async function scanServedFolder(announce) {
+    var base = location.href.replace(/[^/]*$/, "");
+    var found = [];
+    setProgress(0, 1, "Looking for PDFs in this folder\u2026");
+    await listServedFolder(base, 0, found, {});
+    if (!found.length) {
+      hideProgress();
+      if (announce) showError("No PDFs found next to this page. Use \u201cScan a folder\u201d to pick one.");
+      return 0;
+    }
+    var items = [];
+    for (var i = 0; i < found.length; i++) {
+      setProgress(i, found.length, "Fetching " + decodeURIComponent(found[i].slice(base.length)));
+      try {
+        var res = await fetch(found[i]);
+        if (!res.ok) continue;
+        var blob = await res.blob();
+        var rel = decodeURIComponent(found[i].slice(base.length));
+        items.push({ file: new File([blob], rel.split("/").pop(), { type: "application/pdf" }), path: rel });
+      } catch (e) { /* skip what the server will not hand over */ }
+    }
+    hideProgress();
+    var dir = decodeURIComponent(new URL(base).pathname).replace(/\/$/, "").split("/").pop();
+    setFolder(dir || "this folder", null);
+    await addFiles(items);
+    return items.length;
+  }
+
+  // 2. A folder the browser lets us keep a handle to (Chrome and Edge). The
+  //    permission is remembered, so later visits reopen it with one click.
+  function canPickFolder() { return typeof window.showDirectoryPicker === "function"; }
+
+  async function walkDirHandle(handle, prefix, depth, out) {
+    if (depth > MAX_DEPTH || out.length >= MAX_FILES) return;
+    var dirs = [];
+    for await (var entry of handle.values()) {
+      if (out.length >= MAX_FILES) break;
+      var rel = prefix ? prefix + "/" + entry.name : entry.name;
+      if (entry.kind === "file") {
+        if (!/\.pdf$/i.test(entry.name)) continue;
+        try { out.push({ file: await entry.getFile(), path: rel }); } catch (e) {}
+      } else if (entry.kind === "directory" && entry.name.charAt(0) !== ".") {
+        dirs.push({ handle: entry, rel: rel });
+      }
+    }
+    for (var i = 0; i < dirs.length && out.length < MAX_FILES; i++) {
+      await walkDirHandle(dirs[i].handle, dirs[i].rel, depth + 1, out);
+    }
+  }
+
+  async function scanHandle(handle) {
+    var out = [];
+    setProgress(0, 1, "Looking through " + handle.name + "\u2026");
+    await walkDirHandle(handle, "", 0, out);
+    hideProgress();
+    if (!out.length) { showError("No PDFs in " + handle.name + "."); return 0; }
+    if (out.length >= MAX_FILES) {
+      showError("Stopped at " + MAX_FILES + " PDFs. Point it at a smaller folder if something is missing.");
+    }
+    setFolder(handle.name, handle);
+    await addFiles(out);
+    return out.length;
+  }
+
+  async function pickFolder() {
+    if (busy) return;
+    if (canPickFolder()) {
+      var handle;
+      try { handle = await window.showDirectoryPicker({ mode: "read" }); }
+      catch (e) { return; }   // the picker was closed
+      await rememberFolder(handle);
+      await scanHandle(handle);
+      return;
+    }
+    els.dirInput.click();     // Firefox and Safari: the plain folder chooser
+  }
+
+  async function rescan() {
+    if (busy) return;
+    if (dirHandle) {
+      try {
+        var state = await dirHandle.queryPermission({ mode: "read" });
+        if (state !== "granted") state = await dirHandle.requestPermission({ mode: "read" });
+        if (state !== "granted") { showError("Permission for that folder was not given."); return; }
+      } catch (e) { /* older implementations just work */ }
+      await scanHandle(dirHandle);
+      return;
+    }
+    if (servedFrom()) { await scanServedFolder(true); return; }
+    await pickFolder();
+  }
+
+  function setFolder(label, handle) {
+    folderLabel = label || "";
+    dirHandle = handle || dirHandle;
+    els.folderName.textContent = folderLabel ? "Scanned: " + folderLabel : "";
+    els.rescan.hidden = !(folderLabel || dirHandle);
+  }
+
+  /* a folder handle survives between visits, so the certs are there next time */
+  function kv(mode, fn) {
+    return new Promise(function (resolve) {
+      var done = false;
+      var finish = function (v) { if (!done) { done = true; resolve(v); } };
+      setTimeout(function () { finish(null); }, 3000);   // never hold up a scan
+      var req;
+      try { req = indexedDB.open("heat-number-search", 1); } catch (e) { finish(null); return; }
+      req.onupgradeneeded = function () {
+        try { req.result.createObjectStore("kv"); } catch (e) {}
+      };
+      req.onerror = function () { finish(null); };
+      req.onsuccess = function () {
+        try {
+          var store = req.result.transaction("kv", mode).objectStore("kv");
+          var op = fn(store);
+          if (!op) { finish(null); return; }
+          op.onsuccess = function () { finish(op.result); };
+          op.onerror = function () { finish(null); };
+        } catch (e) { finish(null); }   // e.g. a handle this browser will not store
+      };
+    });
+  }
+  function rememberFolder(handle) {
+    return kv("readwrite", function (store) { return store.put(handle, "folder"); });
+  }
+  function recallFolder() {
+    return kv("readonly", function (store) { return store.get("folder"); });
+  }
+
+  // On load: scan what we can without asking, and otherwise offer the folder
+  // that was used last time.
+  async function autoScan() {
+    if (servedFrom()) {
+      var n = await scanServedFolder(false);
+      if (n) return;
+    }
+    if (!canPickFolder()) return;
+    var handle = await recallFolder();
+    if (!handle) return;
+    dirHandle = handle;
+    var state = "prompt";
+    try { state = await handle.queryPermission({ mode: "read" }); } catch (e) {}
+    if (state === "granted") { await scanHandle(handle); return; }
+    setFolder(handle.name, handle);
+    els.rescan.hidden = false;
+    els.rescan.textContent = "Open " + handle.name + " again";
   }
 
   function totalPages() {
@@ -487,7 +715,9 @@
       var li = document.createElement("li");
       var scanned = d.pages.filter(function (p) { return p.norm.length < 16; }).length;
       li.innerHTML =
-        '<span class="nm" title="' + esc(d.name) + '">' + esc(d.name) + "</span>" +
+        '<span class="nm" title="' + esc(d.path) + '">' + esc(d.name) +
+          (d.path !== d.name ? '<span class="path">  ' + esc(d.path.slice(0, d.path.length - d.name.length)) + "</span>" : "") +
+        "</span>" +
         '<span class="meta">' + d.pages.length + " page" + (d.pages.length === 1 ? "" : "s") +
         (scanned ? " · " + scanned + " scanned" : "") + "</span>";
       var x = document.createElement("button");
@@ -555,6 +785,12 @@
 
   function hitKey(hit) { return hit.doc.id + ":" + hit.pg.n; }
 
+  function fileCount(hits) {
+    var ids = {}, n = 0;
+    hits.forEach(function (h) { if (!ids[h.doc.id]) { ids[h.doc.id] = 1; n++; } });
+    return n;
+  }
+
   var searchTimer = null;
   function scheduleSearch() {
     clearTimeout(searchTimer);
@@ -568,13 +804,14 @@
     if (!docs.length) {
       lastHits = [];
       els.resultCount.textContent = "";
-      els.results.innerHTML = '<p class="empty">Load a PDF, then type a heat number.</p>';
+      els.results.innerHTML = '<p class="empty">Scan a folder or drop in some PDFs, then type a heat number.</p>';
       return;
     }
     if (normKey(term).length < 2) {
       lastHits = [];
       els.resultCount.textContent = totalPages() + " pages loaded";
-      els.results.innerHTML = '<p class="empty">Type a heat number to search ' + totalPages() + " pages.</p>";
+      els.results.innerHTML = '<p class="empty">Type a heat number to search ' + totalPages() + " pages in " +
+        docs.length + (docs.length === 1 ? " file." : " files.") + "</p>";
       return;
     }
     lastHits = findHits(term, els.also.value);
@@ -584,7 +821,8 @@
   function renderSingleResults(term) {
     els.results.innerHTML = "";
     els.resultCount.textContent = lastHits.length
-      ? lastHits.length + " page" + (lastHits.length === 1 ? "" : "s") + " of " + totalPages()
+      ? lastHits.length + " page" + (lastHits.length === 1 ? "" : "s") + " in " + fileCount(lastHits) +
+        " of " + docs.length + (docs.length === 1 ? " file" : " files")
       : "0 of " + totalPages() + " pages";
 
     if (!lastHits.length) {
@@ -626,8 +864,9 @@
       card.innerHTML =
         '<div class="top">' +
           '<input type="checkbox" aria-label="Select page ' + hit.pg.n + '">' +
-          '<span class="where">Page ' + hit.pg.n +
-            "<small>" + esc(hit.doc.name) + (hit.pg.ocr ? " · read by OCR" : "") + "</small></span>" +
+          '<span class="where" title="' + esc(hit.doc.path) + '">Page ' + hit.pg.n + " of " + esc(hit.doc.name) +
+            "<small>" + esc(hit.doc.path === hit.doc.name ? folderLabel || "this folder" : hit.doc.path) +
+            (hit.pg.ocr ? "   ·   read by OCR" : "") + "</small></span>" +
           (hit.positions.length > 1 ? '<span class="pill">' + hit.positions.length + "× on page</span>" : "") +
           '<button class="btn sm" data-act="view">View</button>' +
           '<button class="btn sm" data-act="save">Save</button>' +
@@ -671,7 +910,7 @@
       .map(function (s) { return s.trim(); })
       .filter(function (s) { return normKey(s).length >= 2; });
 
-    if (!docs.length) { els.results.innerHTML = '<p class="empty">Load a PDF first.</p>'; return; }
+    if (!docs.length) { els.results.innerHTML = '<p class="empty">Scan a folder or drop in some PDFs first.</p>'; return; }
     if (!terms.length) { els.results.innerHTML = '<p class="empty">Paste a list of heat numbers, one per line.</p>'; return; }
 
     var seen = new Set(), rows = [];
@@ -728,7 +967,7 @@
         r.hits.slice(0, 12).forEach(function (h) {
           var b = document.createElement("button");
           b.className = "linkish"; b.type = "button";
-          b.textContent = "p." + h.pg.n + " — " + h.doc.name;
+          b.textContent = h.doc.path + "   —   page " + h.pg.n;
           b.onclick = function () { showPage(h.doc, h.pg.n); };
           td3.appendChild(b);
           td3.appendChild(document.createElement("br"));
@@ -849,7 +1088,8 @@
 
     els.previewNav.hidden = false;
     els.previewActions.hidden = false;
-    els.previewMeta.innerHTML = "<b>Page " + pageNum + "</b> of " + doc.pages.length + " — " + esc(doc.name);
+    els.previewMeta.innerHTML = "<b>Page " + pageNum + "</b> of " + doc.pages.length +
+      ' — <span title="' + esc(doc.path) + '">' + esc(doc.path) + "</span>";
     els.prevPage.disabled = pageNum <= 1;
     els.nextPage.disabled = pageNum >= doc.pages.length;
 
@@ -945,6 +1185,9 @@
 
   els.drop.addEventListener("click", function () { els.fileInput.click(); });
   els.fileInput.addEventListener("change", function (e) { addFiles(e.target.files); });
+  els.dirInput.addEventListener("change", function (e) { addFiles(e.target.files); });
+  els.scanFolder.addEventListener("click", pickFolder);
+  els.rescan.addEventListener("click", rescan);
 
   ["dragenter", "dragover"].forEach(function (ev) {
     document.addEventListener(ev, function (e) {
@@ -990,6 +1233,7 @@
     showError("The PDF engine did not load. This page needs an internet connection the first time it is opened.");
   }
   clearPreview();
+  autoScan();
 })();
 </script>
 </body>
