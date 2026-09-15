@@ -48,17 +48,34 @@ machine, cannot be reached — sync the folder or download the PDFs first.
 
 ## Searching
 
-Type the heat number. Spaces, dashes and slashes are ignored, so `A-12 345` finds
-`A12345` no matter how the mill printed it. Results are listed per page, with the
-location of the file, and the page itself is previewed beside them.
+**The heat number is matched against the HEAT column.** The tool finds the heading on
+each page — `HEAT No.`, `HEAT`, `HEAT NUMBER`, `Heat No:` and the like — and matches the
+values listed under it, or written beside it. So a number that appears on a page as a
+purchase order, a chemistry figure, a heat-treatment lot, or in a `LOT No.` column is no
+longer a hit. `HEAT TREATMENT` and `HEAT ANALYSIS` headings are ignored, since neither
+holds heat numbers. Each result shows the heading it matched under and the exact value:
+`HEAT No. → 5A1234`.
 
-*Must also contain* narrows a heat number that appears on several certs — put in the
-size (`6"`), the fitting (`Elbow`), or the spec (`A234`).
+Spaces, dashes and slashes are ignored, so `A-12 345` finds `A12345` no matter how the
+mill printed it, and a mill's suffix is allowed — searching `A12345` still finds
+`A12345-1`.
 
-**Save** writes the matching cert out as its own PDF: one file per match, all matches
-merged into one file, or just the ones you tick. `keep N page(s) after each match` picks
-up continuation pages when a cert runs longer than one page, and stops at the next cert
-rather than swallowing it.
+If nothing is found in a HEAT column, the pages that mention the number elsewhere are
+shown instead, each marked *not in a HEAT column*, with a line saying why. Tick **Match
+the heat number anywhere on the page** to search the old way — useful for a mill that
+labels the column something else entirely.
+
+### Words and phrases
+
+The second box takes words that must also be on the page:
+
+    con reducer 50x40          every word must appear
+    "con reducer" 50x40        the quoted words must appear together
+
+Both boxes work on their own. Leave the heat number empty and search `"con reducer"
+50x40` to find every cert for that fitting; fill both in to pin one cert down. Words are
+matched anywhere on the page, and ignore punctuation the same way, so `50x40` finds
+`50 X 40` and `"con reducer"` finds `CON. REDUCER`.
 
 ### Searching a whole list
 
