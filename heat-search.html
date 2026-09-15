@@ -351,6 +351,17 @@
     els.progressText.textContent = label;
   }
   function hideProgress() { els.progress.hidden = true; els.bar.style.width = "0%"; }
+
+  // While a folder is being read, the controls that would start another read are
+  // disabled rather than silently ignored.
+  function lockControls(flag) {
+    els.scanFolder.disabled = flag;
+    els.rescan.disabled = flag;
+    els.ocrBtn.disabled = flag;
+    els.drop.disabled = flag;
+    els.drop.style.opacity = flag ? "0.55" : "";
+  }
+  function setBusy(flag) { busy = flag; lockControls(flag); }
   function yieldUI() { return new Promise(function (r) { setTimeout(r, 0); }); }
   function safeName(s) {
     return String(s).replace(/[\\/:*?"<>|]+/g, "_").replace(/\s+/g, " ").trim().slice(0, 80) || "certificate";
@@ -451,8 +462,8 @@
     if (!files.length) { showError(""); say("Those PDFs are already loaded."); return; }
     if (!window.pdfjsLib) { showError("The PDF engine did not load. Check the internet connection and reload."); return; }
 
-    busy = true; showError("");
-    var skipped = [];
+    setBusy(true); showError("");
+    var skipped = [], partial = [];
     try {
       for (var f = 0; f < files.length; f++) {
         var file = files[f].file;
@@ -460,9 +471,12 @@
         setProgress(f, files.length, "Reading " + where);
         await yieldUI();
 
-        var bytes = new Uint8Array(await file.arrayBuffer());
-        var pdf;
+        // One file the machine will not hand over must not stop the scan: a cert
+        // still in the cloud with no connection, one locked by a sync client, a
+        // damaged or password protected PDF. Note it and carry on.
+        var bytes, pdf;
         try {
+          bytes = new Uint8Array(await file.arrayBuffer());
           pdf = await window.pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
         } catch (e) {
           skipped.push(where);
@@ -471,34 +485,46 @@
 
         var doc = { id: nextDocId++, name: file.name, path: where, size: file.size,
                     bytes: bytes, pdf: pdf, pages: [], blank: 0 };
-        for (var p = 1; p <= pdf.numPages; p++) {
-          var page = await pdf.getPage(p);
-          var content = await page.getTextContent();
-          var text = pageTextFromContent(content);
-          var idx = buildIndex(text);
-          doc.pages.push({ n: p, text: text, norm: idx.norm, map: idx.map, ocr: false });
-          if (idx.norm.length < 16) doc.blank++;
-          page.cleanup();
-          if (p % 5 === 0 || p === pdf.numPages) {
-            setProgress(f + p / pdf.numPages, files.length,
-              "Reading " + where + " \u2014 page " + p + " of " + pdf.numPages +
-              (files.length > 1 ? "   (file " + (f + 1) + " of " + files.length + ")" : ""));
-            await yieldUI();
+        try {
+          for (var p = 1; p <= pdf.numPages; p++) {
+            var page = await pdf.getPage(p);
+            var content = await page.getTextContent();
+            var text = pageTextFromContent(content);
+            var idx = buildIndex(text);
+            doc.pages.push({ n: p, text: text, norm: idx.norm, map: idx.map, ocr: false });
+            if (idx.norm.length < 16) doc.blank++;
+            page.cleanup();
+            if (p % 5 === 0 || p === pdf.numPages) {
+              setProgress(f + p / pdf.numPages, files.length,
+                "Reading " + where + " \u2014 page " + p + " of " + pdf.numPages +
+                (files.length > 1 ? "   (file " + (f + 1) + " of " + files.length + ")" : ""));
+              await yieldUI();
+            }
           }
+        } catch (e) {
+          if (!doc.pages.length) { skipped.push(where); continue; }
+          partial.push(where + " (" + doc.pages.length + " of " + pdf.numPages + " pages)");
         }
         docs.push(doc);
         renderFiles();
       }
+      var trouble = [];
       if (skipped.length) {
-        showError(skipped.length + (skipped.length === 1 ? " file" : " files") +
-          " could not be opened \u2014 password protected or damaged: " + skipped.slice(0, 4).join(", ") +
+        trouble.push(skipped.length + (skipped.length === 1 ? " file was" : " files were") +
+          " skipped \u2014 damaged, password protected, or stored online and not downloaded to this " +
+          "computer: " + skipped.slice(0, 4).join(", ") +
           (skipped.length > 4 ? " and " + (skipped.length - 4) + " more" : ""));
       }
+      if (partial.length) {
+        trouble.push(partial.length + (partial.length === 1 ? " file was" : " files were") +
+          " only read as far as it would go: " + partial.slice(0, 4).join(", "));
+      }
+      if (trouble.length) showError(trouble.join("  "));
       say(docs.length + " files, " + totalPages() + " pages ready to search.");
     } catch (e) {
       showError("Something went wrong while reading the PDFs: " + why(e));
     } finally {
-      busy = false;
+      setBusy(false);
       hideProgress();
       els.fileInput.value = "";
       els.dirInput.value = "";
@@ -551,6 +577,12 @@
   }
 
   async function scanServedFolder(announce) {
+    lockControls(true);
+    try { return await readServedFolder(announce); }
+    finally { if (!busy) lockControls(false); }
+  }
+
+  async function readServedFolder(announce) {
     var base = location.href.replace(/[^/]*$/, "");
     var found = [];
     setProgress(0, 1, "Looking for PDFs in this folder\u2026");
@@ -601,6 +633,12 @@
   }
 
   async function scanHandle(handle) {
+    lockControls(true);
+    try { return await readHandle(handle); }
+    finally { if (!busy) lockControls(false); }
+  }
+
+  async function readHandle(handle) {
     var out = [];
     setProgress(0, 1, "Looking through " + handle.name + "\u2026");
     await walkDirHandle(handle, "", 0, out);
@@ -1117,8 +1155,7 @@
   async function runOcr() {
     var targets = blankPages();
     if (!targets.length || busy) return;
-    busy = true;
-    els.ocrBtn.disabled = true;
+    setBusy(true);
     showError("");
     var worker = null;
     try {
@@ -1160,8 +1197,7 @@
         "Searching still works normally on PDFs that have a text layer.");
     } finally {
       if (worker) { try { await worker.terminate(); } catch (e2) {} }
-      busy = false;
-      els.ocrBtn.disabled = false;
+      setBusy(false);
       hideProgress();
       renderFiles();
       if (mode === "single") runSearch(); else runBatchSearch();

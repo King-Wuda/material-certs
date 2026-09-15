@@ -26,7 +26,25 @@ tool tries them in this order:
    the quickest way to search one package you have just been sent.
 
 Whichever way they arrive, up to 400 PDFs are read, six folders deep. Files that are
-already loaded are skipped, so a rescan only costs time for what is new.
+already loaded are skipped, so a rescan only costs time for what is new. A cert that
+cannot be read — damaged, password protected, or still in the cloud with no connection —
+is named in a notice and the rest of the scan carries on without it.
+
+### OneDrive, SharePoint and network drives
+
+A synced OneDrive folder is an ordinary folder on disk, so all three options work from
+inside one. Two things to know:
+
+- **Files On-Demand.** A cert that shows in Explorer may not actually be on the machine.
+  Reading it pulls it down, so the first scan of a large cloud-only folder is slow and
+  needs a connection; without one, those files are skipped and listed. Right-click the
+  folder and choose *Always keep on this device* before scanning a big package.
+- **`scan-certs.bat` may be blocked** when Windows sees it came from the internet.
+  Right-click it, choose Properties, tick *Unblock*, or use the *Scan a folder* button
+  instead.
+
+Files that live only in the OneDrive or SharePoint website, with nothing synced to the
+machine, cannot be reached — sync the folder or download the PDFs first.
 
 ## Searching
 
