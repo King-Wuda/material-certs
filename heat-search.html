@@ -168,6 +168,15 @@
   .scrollx{overflow-x:auto}
 
   #canvasWrap{border:1px solid var(--line);border-radius:8px;background:var(--bg);overflow:auto;max-height:70vh;display:grid;place-items:center;padding:10px}
+  /* Full screen: the page fills the window, everything else gets out of the way. */
+  #previewPanel.full{
+    position:fixed;inset:0;z-index:120;margin:0;border:0;border-radius:0;max-width:none;box-shadow:none;
+    display:flex;flex-direction:column;gap:0;
+    padding:calc(10px + env(safe-area-inset-top, 0px)) 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  #previewPanel.full #canvasWrap{flex:1 1 auto;max-height:none;min-height:0;align-items:start}
+  #previewPanel.full .previewMeta{margin-bottom:8px}
+  body.locked{overflow:hidden}
   #pageCanvas{max-width:100%;height:auto;background:#fff;box-shadow:var(--shadow);border-radius:2px}
   .previewMeta{font-size:12.5px;color:var(--muted);margin-bottom:10px;min-height:18px}
   .previewMeta b{color:var(--ink)}
@@ -279,12 +288,16 @@
   </div>
 
   <div class="col col-right">
-    <section class="panel">
+    <section class="panel" id="previewPanel">
       <div class="panel-head">
         <h2>Preview</h2>
         <div class="btnrow" id="previewNav" hidden>
+          <button class="btn sm" id="zoomOut" type="button" title="Zoom out">−</button>
+          <button class="btn sm" id="zoomFit" type="button" title="Fit the page">Fit</button>
+          <button class="btn sm" id="zoomIn" type="button" title="Zoom in">+</button>
           <button class="btn sm" id="prevPage" type="button" title="Previous page">◀</button>
           <button class="btn sm" id="nextPage" type="button" title="Next page">▶</button>
+          <button class="btn sm" id="fullBtn" type="button" title="Full screen (F)">⤢ Full screen</button>
         </div>
       </div>
       <p class="previewMeta" id="previewMeta">Pick a result to see the page.</p>
@@ -326,6 +339,8 @@
     canvas: $("pageCanvas"), canvasWrap: $("canvasWrap"),
     previewMeta: $("previewMeta"), previewNav: $("previewNav"), previewActions: $("previewActions"),
     prevPage: $("prevPage"), nextPage: $("nextPage"), saveThis: $("saveThis"), trail: $("trail"),
+    previewPanel: $("previewPanel"), fullBtn: $("fullBtn"),
+    zoomIn: $("zoomIn"), zoomOut: $("zoomOut"), zoomFit: $("zoomFit"),
     live: $("live")
   };
 
@@ -342,6 +357,8 @@
   var trail = 0;            // extra pages to keep after a matched page
   var busy = false;
   var renderToken = 0;
+  var zoom = 1;             // 1 = fit the space the preview has
+  var isFull = false;
 
   /* ---------- small helpers ---------- */
 
@@ -1308,6 +1325,7 @@
   /* ---------- preview ---------- */
 
   function clearPreview() {
+    if (isFull) setFullScreen(false);
     current = null;
     els.previewNav.hidden = true;
     els.previewActions.hidden = true;
@@ -1338,8 +1356,12 @@
       var page = await doc.pdf.getPage(pageNum);
       if (token !== renderToken) return;
       var base = page.getViewport({ scale: 1 });
-      var targetWidth = Math.max(260, els.canvasWrap.clientWidth - 24);
-      var css = targetWidth / base.width;
+      var fit = Math.max(260, els.canvasWrap.clientWidth - 24) / base.width;
+      if (isFull) {
+        var room = els.canvasWrap.clientHeight - 24;
+        if (room > 120) fit = Math.min(fit, room / base.height);
+      }
+      var css = fit * zoom;
       var dpr = Math.min(2, window.devicePixelRatio || 1);
       var viewport = page.getViewport({ scale: css * dpr });
       els.canvas.width = Math.floor(viewport.width);
@@ -1351,6 +1373,39 @@
     } catch (e) {
       if (token === renderToken) showError("Could not draw that page: " + why(e));
     }
+  }
+
+  function redrawPreview() {
+    if (current) showPage(current.doc, current.page);
+  }
+
+  function setZoom(next) {
+    zoom = Math.max(0.25, Math.min(6, next));
+    els.zoomFit.textContent = zoom === 1 ? "Fit" : Math.round(zoom * 100) + "%";
+    redrawPreview();
+  }
+
+  function setFullScreen(on) {
+    if (on === isFull) return;
+    isFull = on;
+    els.previewPanel.classList.toggle("full", on);
+    document.body.classList.toggle("locked", on);
+    els.fullBtn.textContent = on ? "⤡ Close (Esc)" : "⤢ Full screen";
+
+    // Cover the browser's own chrome as well where that is allowed; the panel
+    // already fills the window either way, so a refusal costs nothing.
+    try {
+      if (on && els.previewPanel.requestFullscreen) {
+        var r = els.previewPanel.requestFullscreen();
+        if (r && r.catch) r.catch(function () {});
+      } else if (!on && document.fullscreenElement && document.exitFullscreen) {
+        var x = document.exitFullscreen();
+        if (x && x.catch) x.catch(function () {});
+      }
+    } catch (e) { /* the overlay stands on its own */ }
+
+    requestAnimationFrame(redrawPreview);
+    if (on) els.fullBtn.focus();
   }
 
   /* ---------- OCR for scanned pages ---------- */
@@ -1482,6 +1537,17 @@
 
   els.prevPage.addEventListener("click", function () { if (current) showPage(current.doc, current.page - 1); });
   els.nextPage.addEventListener("click", function () { if (current) showPage(current.doc, current.page + 1); });
+  els.fullBtn.addEventListener("click", function () { setFullScreen(!isFull); });
+  els.zoomIn.addEventListener("click", function () { setZoom(zoom * 1.25); });
+  els.zoomOut.addEventListener("click", function () { setZoom(zoom / 1.25); });
+  els.zoomFit.addEventListener("click", function () { setZoom(1); });
+  document.addEventListener("fullscreenchange", function () {
+    if (!document.fullscreenElement && isFull) setFullScreen(false);   // Esc, or the browser's own control
+  });
+  window.addEventListener("resize", function () {
+    clearTimeout(window.__previewResize);
+    window.__previewResize = setTimeout(redrawPreview, 200);
+  });
   els.saveThis.addEventListener("click", function () {
     if (!current) return;
     var term = mode === "single" && els.q.value.trim() ? els.q.value.trim() : baseName(current.doc.name);
@@ -1490,9 +1556,19 @@
   bindTrail(els.trail);
 
   document.addEventListener("keydown", function (e) {
+    var typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || "");
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
-      e.preventDefault(); setMode("single"); els.q.select();
+      e.preventDefault(); setMode("single"); els.q.select(); return;
     }
+    if (e.key === "Escape" && isFull) { e.preventDefault(); setFullScreen(false); return; }
+    if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key.toLowerCase() === "f" && current) { e.preventDefault(); setFullScreen(!isFull); return; }
+    if (!isFull || !current) return;
+    if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); showPage(current.doc, current.page - 1); }
+    else if (e.key === "ArrowRight" || e.key === "PageDown") { e.preventDefault(); showPage(current.doc, current.page + 1); }
+    else if (e.key === "+" || e.key === "=") { e.preventDefault(); setZoom(zoom * 1.25); }
+    else if (e.key === "-") { e.preventDefault(); setZoom(zoom / 1.25); }
+    else if (e.key === "0") { e.preventDefault(); setZoom(1); }
   });
 
   if (window.pdfjsLib) {
