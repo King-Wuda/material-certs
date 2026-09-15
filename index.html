@@ -327,13 +327,39 @@
   }
   function baseName(s) { return String(s).replace(/\.pdf$/i, ""); }
 
-  function downloadBytes(bytes, filename) {
+  // When this page is opened from a local file or a web server it saves the PDF
+  // itself. When it is published on claude.ai the frame is not allowed to start a
+  // download, so the viewer is asked instead. Returns false if nothing was saved.
+  var viewerSave = null, viewerSaveAsked = false;
+  async function getViewerSave() {
+    if (viewerSaveAsked) return viewerSave;
+    viewerSaveAsked = true;
+    try {
+      if (window.claude && typeof window.claude.use === "function") {
+        viewerSave = await window.claude.use("downloads");
+      }
+    } catch (e) { viewerSave = null; }
+    return viewerSave;
+  }
+
+  async function downloadBytes(bytes, filename) {
     var blob = new Blob([bytes], { type: "application/pdf" });
+    var saver = await getViewerSave();
+    if (saver) {
+      try {
+        await saver.save({ filename: filename, data: blob });
+        return true;
+      } catch (e) {
+        if (!e || e.code !== "declined") showError("That file was not saved (" + ((e && e.code) || why(e)) + ").");
+        return false;
+      }
+    }
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url; a.download = filename; a.rel = "noopener";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+    return true;
   }
 
   function loadScript(src) {
@@ -663,8 +689,9 @@
     };
     bar.querySelector('[data-act="each"]').onclick = async function () {
       for (var i = 0; i < found.length; i++) {
-        await savePages(found[i].hits.map(toRef), safeName(found[i].term) + ".pdf");
-        await new Promise(function (r) { setTimeout(r, 350); }); // let the browser queue each download
+        var ok = await savePages(found[i].hits.map(toRef), safeName(found[i].term) + ".pdf");
+        if (!ok) return;
+        if (!viewerSave) await new Promise(function (r) { setTimeout(r, 350); }); // let the browser queue each download
       }
     };
 
@@ -713,8 +740,8 @@
   /* ---------- building the output PDF ---------- */
 
   async function savePages(refs, filename) {
-    if (!refs.length) return;
-    if (!window.PDFLib) { showError("The PDF writer did not load. Check the internet connection and reload."); return; }
+    if (!refs.length) return false;
+    if (!window.PDFLib) { showError("The PDF writer did not load. Check the internet connection and reload."); return false; }
     showError("");
     try {
       setProgress(0, refs.length, "Building " + filename + "…");
@@ -762,11 +789,13 @@
         await yieldUI();
       }
 
-      if (!out.getPageCount()) { showError("Nothing to save."); return; }
-      downloadBytes(await out.save(), filename);
-      say("Saved " + filename);
+      if (!out.getPageCount()) { showError("Nothing to save."); return false; }
+      var ok = await downloadBytes(await out.save(), filename);
+      if (ok) say("Saved " + filename);
+      return ok;
     } catch (e) {
       showError("Could not build the PDF: " + why(e));
+      return false;
     } finally {
       hideProgress();
     }
@@ -775,8 +804,9 @@
   async function saveEach(term) {
     for (var i = 0; i < lastHits.length; i++) {
       var h = lastHits[i];
-      await savePages([toRef(h)], safeName(term) + "-" + safeName(baseName(h.doc.name)) + "-p" + h.pg.n + ".pdf");
-      await new Promise(function (r) { setTimeout(r, 350); });
+      var ok = await savePages([toRef(h)], safeName(term) + "-" + safeName(baseName(h.doc.name)) + "-p" + h.pg.n + ".pdf");
+      if (!ok) return;
+      if (!viewerSave) await new Promise(function (r) { setTimeout(r, 350); });
     }
   }
 
