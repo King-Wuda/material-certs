@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Heat Number Search — Material Certificates</title>
+<title>Heat Number Search</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <style>
   :root{
     --bg:#f4f6f8; --panel:#ffffff; --ink:#16202b; --muted:#66788a;
@@ -11,20 +14,31 @@
     --ok:#12795a; --ok-soft:#e3f5ee; --warn:#8a5a00; --warn-soft:#fdf2dd;
     --bad:#a32222; --bad-soft:#fdeaea; --mark:#ffe08a; --mark-ink:#16202b; --shadow:0 1px 2px rgba(16,32,48,.06),0 8px 24px rgba(16,32,48,.06);
     --radius:10px;
+    --sans:"IBM Plex Sans",ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   }
+  /* The viewer may follow the system, or ask for one theme outright. */
   @media (prefers-color-scheme:dark){
-    :root{
+    :root:not([data-theme="light"]){
       --bg:#10161d; --panel:#172029; --ink:#e7edf3; --muted:#93a4b5;
       --line:#27333f; --accent:#4aa8dd; --accent-ink:#06121b; --accent-soft:#122a3a;
       --ok:#5fd3ab; --ok-soft:#102b24; --warn:#e2b45a; --warn-soft:#2c2313;
-      --bad:#f08a8a; --bad-soft:#2e1818; --mark:#8a6712; --mark-ink:#fff6df; --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
+      --bad:#f08a8a; --bad-soft:#2e1818; --mark:#8a6712; --mark-ink:#fff6df;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
     }
+  }
+  :root[data-theme="dark"]{
+      --bg:#10161d; --panel:#172029; --ink:#e7edf3; --muted:#93a4b5;
+      --line:#27333f; --accent:#4aa8dd; --accent-ink:#06121b; --accent-soft:#122a3a;
+      --ok:#5fd3ab; --ok-soft:#102b24; --warn:#e2b45a; --warn-soft:#2c2313;
+      --bad:#f08a8a; --bad-soft:#2e1818; --mark:#8a6712; --mark-ink:#fff6df;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
   }
   *{box-sizing:border-box}
   html,body{margin:0}
   body{
     background:var(--bg); color:var(--ink);
-    font:14px/1.5 ui-sans-serif,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font:14px/1.55 var(--sans);
     -webkit-text-size-adjust:100%;
   }
   h1,h2,h3{margin:0;line-height:1.25}
@@ -34,7 +48,7 @@
   .topbar{
     display:flex;gap:16px;align-items:center;justify-content:space-between;flex-wrap:wrap;
     padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line);
-    position:sticky;top:0;z-index:20;
+    position:sticky;top:env(safe-area-inset-top, 0px);z-index:20;
   }
   .brand{display:flex;gap:12px;align-items:center;min-width:0}
   .logo{
@@ -49,7 +63,7 @@
   main{max-width:1500px;margin:0 auto;padding:18px;display:grid;gap:18px;grid-template-columns:minmax(0,1fr) minmax(0,460px);align-items:start}
   @media (max-width:1050px){ main{grid-template-columns:minmax(0,1fr)} }
   .col{display:grid;gap:18px;align-items:start;min-width:0}
-  .col-right{position:sticky;top:86px}
+  .col-right{position:sticky;top:calc(86px + env(safe-area-inset-top, 0px))}
   @media (max-width:1050px){ .col-right{position:static} }
 
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;min-width:0}
@@ -74,7 +88,7 @@
   .files{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:8px}
   .files li{display:flex;gap:10px;align-items:center;padding:9px 11px;border:1px solid var(--line);border-radius:8px}
   .files .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
-  .files .meta{font-size:12px;color:var(--muted);white-space:nowrap}
+  .files .meta{font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
   .x{background:none;border:0;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;padding:4px;border-radius:6px}
   .x:hover{color:var(--bad);background:var(--bad-soft)}
 
@@ -95,10 +109,10 @@
     width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);
   }
   input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent)}
-  #q{font-size:18px;font-weight:600;letter-spacing:.04em;padding:12px 14px}
-  textarea{resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+  #q{font-family:var(--mono);font-size:18px;font-weight:600;letter-spacing:.04em;padding:12px 14px}
+  textarea{resize:vertical;font-family:var(--mono);font-size:13px}
   .hint{font-size:12px;color:var(--muted)}
-  .hint code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;
+  .hint code{font-family:var(--mono);font-size:11.5px;
     background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 4px;color:var(--ink)}
   .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   @media (max-width:520px){ .two{grid-template-columns:1fr} }
@@ -126,18 +140,18 @@
   .hit{border:1px solid var(--line);border-radius:8px;padding:11px 12px;margin-bottom:9px;display:grid;gap:8px}
   .hit.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
   .hit .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-  .hit .where{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .hit .where{font-weight:600;font-variant-numeric:tabular-nums;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
   .hit .where small{display:block;font-weight:400;color:var(--muted);font-size:12px}
   .pill{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
   .snippet{font-size:12.5px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:6px;
-    padding:8px 10px;max-height:78px;overflow:auto;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    padding:8px 10px;max-height:78px;overflow:auto;word-break:break-word;font-family:var(--mono)}
   mark{background:var(--mark);color:var(--mark-ink);border-radius:3px;padding:0 2px;font-weight:700}
   .empty{text-align:center;color:var(--muted);padding:26px 10px;font-size:13.5px}
 
   table{width:100%;border-collapse:collapse;font-size:13px}
   th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--line);vertical-align:top}
   th{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
-  td.heat{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;white-space:nowrap}
+  td.heat{font-family:var(--mono);font-weight:700;white-space:nowrap}
   .tag{font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
   .tag.ok{background:var(--ok-soft);color:var(--ok)}
   .tag.no{background:var(--bad-soft);color:var(--bad)}
@@ -148,6 +162,7 @@
   #pageCanvas{max-width:100%;height:auto;background:#fff;box-shadow:var(--shadow);border-radius:2px}
   .previewMeta{font-size:12.5px;color:var(--muted);margin-bottom:10px;min-height:18px}
   .previewMeta b{color:var(--ink)}
+  @media (prefers-reduced-motion:reduce){ *{transition:none !important;animation:none !important} }
   [hidden]{display:none !important}
   .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 </style>
